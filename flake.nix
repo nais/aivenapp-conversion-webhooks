@@ -125,6 +125,50 @@
               cargoNextestPartitionsExtraArgs = "--no-tests=pass";
             }
           );
+        }
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          nixos-vm-test = pkgs.nixosTest {
+            name = "aacw-webhook";
+            nodes.machine = { pkgs, ... }: {
+              environment.systemPackages = [
+                pkgs.curl
+                pkgs.jq
+                pkgs.step-cli
+                my-crate
+              ];
+
+
+              systemd.services.aacw = {
+                description = "AivenApp Conversion Webhook";
+                wantedBy = [ "multi-user.target" ];
+                after = [ "network.target" ];
+                serviceConfig = {
+                  Type = "simple";
+                  WorkingDirectory = "/var/lib/aacw";
+                  ExecStartPre = lib.mkForce "${pkgs.bash}/bin/bash -c 'mkdir -p /var/lib/aacw && cd /var/lib/aacw && ${pkgs.step-cli}/bin/step certificate create localhost cert.pem key.pem --profile self-signed --subtle --no-password --insecure'";
+                  ExecStart = "${my-crate}/bin/aivenapp-conversion-webhooks";
+                  Restart = "on-failure";
+                  RestartSec = 1;
+                };
+              };
+            };
+            testScript = ''
+              machine.start()
+              machine.wait_for_unit("multi-user.target")
+              machine.wait_for_unit("aacw.service")
+              machine.wait_for_open_port(3000)
+
+              # Prepare a minimal ConversionReview request targeting v2
+              payload='{"apiVersion":"apiextensions.k8s.io/v1","kind":"ConversionReview","request":{"uid":"123","desiredAPIVersion":"v2","objects":[{"apiVersion":"v1","kind":"AivenApp","spec":{"secretName":"supersecret","kafka":{}}}]}}'
+
+              # Send to the webhook over TLS; ignore verification because it's self-signed
+              resp=$(curl -sk https://localhost:3000/convert -H 'content-type: application/json' --data "$payload")
+              echo "$resp" | jq .
+
+              # Validate that secretName moved under spec.kafka
+              echo "$resp" | jq -e '.response.convertedObjects[0].spec.kafka.secretName == "supersecret"'
+            '';
+          };
         };
 
         packages = {
