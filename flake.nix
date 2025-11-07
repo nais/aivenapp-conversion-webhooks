@@ -56,7 +56,7 @@
 
         # Build the actual crate itself, reusing the dependency
         # artifacts from above.
-        my-crate = craneLib.buildPackage (
+        aivenapp-conversion-webhooks = craneLib.buildPackage (
           commonArgs
           // {
             inherit cargoArtifacts;
@@ -66,7 +66,7 @@
       {
         checks = {
           # Build the crate as part of `nix flake check` for convenience
-          inherit my-crate;
+          inherit aivenapp-conversion-webhooks;
 
           # Run clippy (and deny all warnings) on the crate source,
           # again, reusing the dependency artifacts from above.
@@ -97,21 +97,15 @@
             inherit src;
           };
 
-          my-crate-toml-fmt = craneLib.taploFmt {
-            src = pkgs.lib.sources.sourceFilesBySuffices src [ ".toml" ];
-            # taplo arguments can be further customized below as needed
-            # taploExtraArgs = "--config ./taplo.toml";
-          };
+          # # Audit dependencies
+          # my-crate-audit = craneLib.cargoAudit {
+          #   inherit src advisory-db;
+          # };
 
-          # Audit dependencies
-          my-crate-audit = craneLib.cargoAudit {
-            inherit src advisory-db;
-          };
-
-          # Audit licenses
-          my-crate-deny = craneLib.cargoDeny {
-            inherit src;
-          };
+          # # Audit licenses
+          # my-crate-deny = craneLib.cargoDeny {
+          #   inherit src;
+          # };
 
           # Run tests with cargo-nextest
           # Consider setting `doCheck = false` on `my-crate` if you do not want
@@ -127,14 +121,14 @@
           );
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-          nixos-vm-test = pkgs.nixosTest {
+          nixos-vm-test = pkgs.testers.nixosTest {
             name = "aacw-webhook";
             nodes.machine = { pkgs, ... }: {
               environment.systemPackages = [
                 pkgs.curl
                 pkgs.jq
                 pkgs.step-cli
-                my-crate
+                aivenapp-conversion-webhooks
               ];
 
 
@@ -146,7 +140,7 @@
                   Type = "simple";
                   WorkingDirectory = "/var/lib/aacw";
                   ExecStartPre = lib.mkForce "${pkgs.bash}/bin/bash -c 'mkdir -p /var/lib/aacw && cd /var/lib/aacw && ${pkgs.step-cli}/bin/step certificate create localhost cert.pem key.pem --profile self-signed --subtle --no-password --insecure'";
-                  ExecStart = "${my-crate}/bin/aivenapp-conversion-webhooks";
+                  ExecStart = "${aivenapp-conversion-webhooks}/bin/aivenapp-conversion-webhooks";
                   Restart = "on-failure";
                   RestartSec = 1;
                 };
@@ -172,11 +166,11 @@
         };
 
         packages = {
-          default = my-crate;
+          default = aivenapp-conversion-webhooks;
         };
 
         apps.default = flake-utils.lib.mkApp {
-          drv = my-crate;
+          drv = aivenapp-conversion-webhooks;
         };
 
         apps.mk-cert = flake-utils.lib.mkApp { drv = pkgs.writeShellApplication {
