@@ -1,8 +1,11 @@
-use anyhow::{bail, Result};
-use axum::{routing::{get, post}, Json, Router};
+use anyhow::{Result, bail};
+use axum::{
+    Json, Router,
+    routing::{get, post},
+};
 use axum_server::tls_rustls::RustlsConfig;
-use kube::core::conversion::{ConversionRequest, ConversionResponse, ConversionReview};
 use kube::core::Status as KubeStatus;
+use kube::core::conversion::{ConversionRequest, ConversionResponse, ConversionReview};
 use serde_json::Value;
 use std::{env, net::SocketAddr};
 use tracing::info;
@@ -21,15 +24,15 @@ traces
 
 #[tokio::main]
 async fn main() {
-    info!("Good morning, Nais!");
+    info!("started");
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
 
     let app = Router::new()
         .route("/convert", post(convert))
         .route("/health", get(health))
         .route("/ready", get(ready));
-    rustls::crypto::ring::default_provider()
-        .install_default()
-        .expect("Failed to install rustls crypto provider");
 
     let cert_path = env::var("TLS_CERT_FILE").unwrap_or_else(|_| "/app/tls.crt".to_string());
     let key_path = env::var("TLS_KEY_FILE").unwrap_or_else(|_| "/app/tls.key".to_string());
@@ -45,8 +48,12 @@ async fn main() {
         .unwrap();
 }
 
-async fn health() -> &'static str { "ok" }
-async fn ready() -> &'static str { "ok" }
+async fn health() -> &'static str {
+    "ok"
+}
+async fn ready() -> &'static str {
+    "ok"
+}
 
 /// this is only for v1-v2 for aivenapps
 async fn convert(Json(review): Json<ConversionReview>) -> Json<ConversionReview> {
