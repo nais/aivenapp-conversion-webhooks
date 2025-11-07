@@ -169,6 +169,8 @@
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux nixos-vm-test;
 
+        formatter = pkgs.nixfmt-rfc-style;
+
         packages =
           {
             default = aivenapp-conversion-webhooks;
