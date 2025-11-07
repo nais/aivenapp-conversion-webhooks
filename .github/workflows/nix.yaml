@@ -1,0 +1,48 @@
+name: build
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - "**/*.md"
+      - ".env*"
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-24.04
+    permissions:
+      packages: "write"
+      contents: "read"
+      id-token: "write"
+    steps:
+      - name: nix-build
+        uses: nais/nais-nix-action@main
+        id: nix-build
+        with:
+          team: team-researchops
+
+    outputs:
+      image: ${{ steps.nix-build.outputs.image }}
+
+  deploy:
+    name: deploy
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      packages: "write"
+      contents: "read"
+      id-token: "write"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download spec
+        uses: actions/download-artifact@v4
+        with:
+          name: spec.yaml
+
+      - name: Deploy-prod
+        uses: nais/deploy/actions/deploy@v2
+        env:
+          IMAGE: ${{ steps.build.outputs.image }}
+          CLUSTER: prod-gcp
+          RESOURCE: spec.yaml
