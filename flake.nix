@@ -135,6 +135,13 @@
           drv = my-crate;
         };
 
+        apps.mk-cert = flake-utils.lib.mkApp { drv = pkgs.writeShellApplication {
+          name = "mk-cert";
+          text = "step certificate create localhost cert.pem key.pem --profile self-signed --subtle --no-password --insecure";
+          runtimeInputs = [pkgs.step-cli];
+        };
+                                            };
+
         devShells.default = craneLib.devShell {
           # Inherit inputs from checks.
           checks = self.checks.${system};
@@ -145,7 +152,6 @@
           # Extra inputs can be added here; cargo and rustc are provided by default.
           packages = [
             pkgs.rust-analyzer
-            pkgs.step-ca
             pkgs.step-cli
           ];
         };
