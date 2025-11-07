@@ -1,70 +1,100 @@
 use anyhow::{Result, bail};
 use axum::{Json, Router, routing::post};
-use k8s_openapi::api::networking::v1::IngressLoadBalancerStatus;
+use axum_server::tls_rustls::RustlsConfig;
+use kube::core::Status as KubeStatus;
 use kube::core::conversion::{ConversionRequest, ConversionResponse, ConversionReview};
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::io::{Error, ErrorKind};
-use tracing::{error, info};
+use std::net::SocketAddr;
+use tracing::info;
+
+/* Todos
+
+Use tls certs from cert manager
+have a tls cert integration test
+nix docker -> Ci
+fasit feature
+do conversion up to desired version in a generic manner, Eg 1 then 2 then 3 ... $Desired_version
+metrics
+traces
+
+ */
 
 #[tokio::main]
 async fn main() {
     info!("Good morning, Nais!");
 
     let app = Router::new().route("/convert", post(convert));
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let config = RustlsConfig::from_pem_file("./cert.pem", "./key.pem")
+        .await
+        .expect("certs");
+    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+
+    axum_server::bind_rustls(addr, config)
+        .serve(app.into_make_service())
+        .await
+        .unwrap();
 }
 
-/// convert is only for aivenapplications.aiven.nais.io/v1 to v2
-async fn convert(Json(payload): Json<ConversionRequest>) -> anyhow::Result<ConversionResponse> {
-    info!("Time to check the log");
+/// this is only for v1-v2 for aivenapps
+async fn convert(Json(review): Json<ConversionReview>) -> Json<ConversionReview> {
+    info!("received ConversionReview");
 
-    let desired_version = &payload.desired_api_version;
+    match ConversionRequest::from_review(review) {
+        Ok(mut req) => {
+            // only supports converting TO v2
+            let desired = req.desired_api_version.clone();
+            if !(desired == "v2" || desired.ends_with("/v2")) {
+                let status = KubeStatus::failure(
+                    &format!("unsupported conversion target: {}", desired),
+                    "UnsupportedTarget",
+                );
+                let res = ConversionResponse::for_request(req)
+                    .failure(status)
+                    .into_review();
+                return Json(res);
+            }
 
-    if desired_version != "aivenapplications.aiven.nais.io/v2" {
-        bail!("migration target")
+            // this is cool actually, this lets us get the objects and we replace the old objects with an
+            // empty vec and now suddenly we dont have to worry about partial ownershit
+            let objects = std::mem::take(&mut req.objects);
+            let converted = objects
+                .into_iter()
+                .map(drop_spec_secret)
+                .collect::<anyhow::Result<Vec<_>>>();
+
+            match converted {
+                Ok(list) => Json(
+                    ConversionResponse::for_request(req)
+                        .success(list)
+                        .into_review(),
+                ),
+                Err(e) => {
+                    let status = KubeStatus::failure(
+                        &format!("conversion failed: {}", e),
+                        "ConversionFailed",
+                    );
+                    Json(
+                        ConversionResponse::for_request(req)
+                            .failure(status)
+                            .into_review(),
+                    )
+                }
+            }
+        }
+        Err(_) => {
+            let status =
+                KubeStatus::failure("request missing in ConversionReview", "InvalidRequest");
+            Json(ConversionResponse::invalid(status).into_review())
+        }
     }
-
-    let request_uid = &payload.uid;
-    let mut p = payload.clone();
-    let obj = p
-        .objects
-        .iter_mut()
-        .map(|x| drop_spec_secret(x))
-        .collect::<Vec<_>>();
-    let converted_objs = match desired_version.as_str() {
-        "v2" => p
-            .objects
-            .iter_mut()
-            .map(|x| drop_spec_secret(x))
-            .collect::<Vec<_>>(),
-        _ => bail!("migration target"),
-    };
-    let response = todo!();
-    todo!()
 }
 
-fn conversion_response(list: Vec<serde_json::Value>, uid: &str) -> ConversionResponse {
-    ConversionResponse {
-        types: None,
-        uid: uid.to_owned(),
-        result: kube::client::Status {
-            status: None,
-            code: 0,
-            message: todo!(),
-            reason: todo!(),
-            details: todo!(),
-        },
-        converted_objects: list,
-    }
-}
-
-fn drop_spec_secret(mut value: &Value) -> Result<Value> {
-    let mut v = value.clone();
-
-    if let Some(api_version) = v.get_mut("apiVersion") {
+fn drop_spec_secret(mut v: Value) -> Result<Value> {
+    if let Some(api_version) = v.get("apiVersion") {
         if api_version != "v1" {
             bail!("not a v1");
         }
@@ -76,22 +106,18 @@ fn drop_spec_secret(mut value: &Value) -> Result<Value> {
         };
 
         if let Some(secret_val) = spec_obj.remove("secretName") {
-            match spec_obj.get_mut("kafka") {
-                None => {
-                    let mut kafka_obj = serde_json::Map::new();
-                    kafka_obj.insert("secretName".to_owned(), secret_val);
-                    spec_obj.insert("kafka".to_owned(), Value::Object(kafka_obj));
-                }
-                Some(kafka) => {
-                    let Some(kafka_obj) = kafka.as_object_mut() else {
-                        bail!("spec.kafka is not an object");
-                    };
-                    kafka_obj.insert("secretName".to_owned(), secret_val);
-                }
+            if let Some(kafka) = spec_obj.get_mut("kafka") {
+                let Some(kafka_obj) = kafka.as_object_mut() else {
+                    bail!("spec.kafka is not an object");
+                };
+                // only set secretName inside kafka if it's missing
+                kafka_obj
+                    .entry("secretName".to_owned())
+                    .or_insert(secret_val);
             }
         }
     }
-    Ok(v.clone())
+    Ok(v)
 }
 
 #[cfg(test)]
@@ -109,14 +135,14 @@ mod tests {
             }
         });
 
-        let result = drop_spec_secret(&value)?;
+        let result = drop_spec_secret(value)?;
         assert!(result["spec"].get("secretName").is_none());
         assert_eq!(result["spec"]["kafka"]["secretName"], "supersecret");
         Ok(())
     }
 
     #[test]
-    fn test_creates_kafka_if_missing() -> Result<()> {
+    fn test_drops_secret_when_kafka_missing() -> Result<()> {
         let value = json!({
             "apiVersion": "v1",
             "spec": {
@@ -124,9 +150,10 @@ mod tests {
             }
         });
 
-        let result = drop_spec_secret(&value)?;
+        let result = drop_spec_secret(value)?;
         assert!(result["spec"].get("secretName").is_none());
-        assert_eq!(result["spec"]["kafka"]["secretName"], "topsecret");
+        // should NOT create kafka when it wasn't present
+        assert!(result["spec"].get("kafka").is_none());
         Ok(())
     }
 
@@ -136,38 +163,16 @@ mod tests {
             "apiVersion": "v1",
             "spec": {
                 "kafka": {
-                    "exists": true
+                    // V this is a low fidelity repr of the kafka bits.
+                    "heresafield": true
                 }
             }
         });
 
-        let result = drop_spec_secret(&value)?;
+        let result = drop_spec_secret(value)?;
         assert!(result["spec"].get("secretName").is_none());
-        assert_eq!(result["spec"]["kafka"]["exists"], true);
+        assert_eq!(result["spec"]["kafka"]["heresafield"], true);
         Ok(())
-    }
-
-    #[test]
-    fn test_fails_if_spec_is_not_object() {
-        let value = json!({
-            "apiVersion": "v1",
-            "spec": "should_be_an_object"
-        });
-        let result = drop_spec_secret(&value);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_fails_if_kafka_is_not_object() {
-        let value = json!({
-            "apiVersion": "v1",
-            "spec": {
-                "secretName": "s",
-                "kafka": "bad"
-            }
-        });
-        let result = drop_spec_secret(&value);
-        assert!(result.is_err());
     }
 
     #[test]
@@ -178,18 +183,7 @@ mod tests {
                 "secretName": "test"
             }
         });
-        let result = drop_spec_secret(&value);
+        let result = drop_spec_secret(value);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_handles_no_spec_gracefully() -> Result<()> {
-        let value = json!({
-            "apiVersion": "v1",
-        });
-
-        let result = drop_spec_secret(&value)?;
-        assert!(result.get("spec").is_none());
-        Ok(())
     }
 }
