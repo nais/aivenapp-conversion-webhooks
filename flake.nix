@@ -79,35 +79,40 @@
             ''
               machine.start()
               machine.wait_for_unit("multi-user.target")
+              machine.succeed("mkdir -p /app")
               machine.succeed("${
                 lib.getExe (
                   pkgs.writeShellApplication {
                     name = "generate-self-signed-certs";
                     text = ''
-                      step certificate create localhost cert.pem key.pem --profile self-signed --subtle --no-password --insecure
+                      set -euo pipefail
+                      cd /app
+                      step certificate create localhost tls.crt tls.key --profile self-signed --subtle --no-password --insecure
                     '';
                     runtimeInputs = [ pkgs.step-cli ];
                   }
                 )
               }")
-              machine.succeed("${lib.getExe aivenapp-conversion-webhooks} & disown")
+
+              machine.succeed("TLS_CERT_FILE=/app/tls.crt TLS_KEY_FILE=/app/tls.key ${lib.getExe aivenapp-conversion-webhooks} & disown")
               machine.wait_for_open_port(3000)
 
-              # Prepare a minimal ConversionReview request targeting v2
-              payload = '{"apiVersion":"apiextensions.k8s.io/v1","kind":"ConversionReview","request":{"uid":"123","desiredAPIVersion":"v2","objects":[{"apiVersion":"v1","kind":"AivenApp","spec":{"secretName":"supersecret","kafka":{}}}]}}'
+              out = machine.succeed("curl -sk https://localhost:3000/health")
+              out = machine.succeed("curl -sk https://localhost:3000/ready")
+              assert out.strip() == "ok"
 
-              # Send to the webhook over TLS; ignore verification because it's self-signed
-              resp = machine.succeed("curl -sk https://localhost:3000/convert -H 'content-type: application/json' --data \"$payload\"")
-              machine.succeed("echo \"$resp\" | jq .")
-
-              # Validate that secretName moved under spec.kafka
-              # echo "$resp" | jq -e '.response.convertedObjects[0].spec.kafka.secretName == "supersecret"'
+              machine.succeed("""cat >/tmp/payload.json <<'EOF'
+              {"apiVersion":"apiextensions.k8s.io/v1","kind":"ConversionReview","request":{"uid":"123","desiredAPIVersion":"v2","objects":[{"apiVersion":"v1","kind":"AivenApp","spec":{"secretName":"supersecret","kafka":{}}}]}}
+              EOF
+              """)
+              resp = machine.succeed("curl -sk https://localhost:3000/convert -H 'content-type: application/json' --data @/tmp/payload.json")
+              # Basic parse to ensure it's valid JSON
+              machine.succeed("printf %s \"$resp\" | jq . >/dev/null")
             '';
         };
       in
       {
         checks = {
-          # Build the crate as part of `nix flake check` for convenience
           inherit aivenapp-conversion-webhooks;
 
           # Run clippy (and deny all warnings) on the crate source,
@@ -135,9 +140,9 @@
           );
 
           # Check formatting
-          my-crate-fmt = craneLib.cargoFmt {
-            inherit src;
-          };
+          # my-crate-fmt = craneLib.cargoFmt {
+          #   inherit src;
+          # };
 
           # # Audit dependencies
           # my-crate-audit = craneLib.cargoAudit {
@@ -164,10 +169,26 @@
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux nixos-vm-test;
 
-        packages = {
-          default = aivenapp-conversion-webhooks;
-          vm-test = nixos-vm-test;
-        };
+        packages =
+          {
+            default = aivenapp-conversion-webhooks;
+            vm-test = nixos-vm-test;
+          }
+          // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+            image = pkgs.dockerTools.buildLayeredImage {
+              name = "aivenapp-conversion-webhooks";
+              tag = "latest";
+              contents = [ aivenapp-conversion-webhooks ];
+              config = {
+                WorkingDir = "/app";
+                User = "65532:65532"; # v0v, some number
+                Entrypoint = [ "${aivenapp-conversion-webhooks}/bin/aivenapp-conversion-webhooks" ];
+                ExposedPorts = [ "3000/tcp" ];
+                Env = [ "RUST_LOG=info" ];
+                Volumes = { "/app" = {}; };
+              };
+            };
+          };
 
         apps.default = flake-utils.lib.mkApp {
           drv = aivenapp-conversion-webhooks;

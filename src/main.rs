@@ -1,10 +1,10 @@
 use anyhow::{bail, Result};
-use axum::{routing::post, Json, Router};
+use axum::{routing::{get, post}, Json, Router};
 use axum_server::tls_rustls::RustlsConfig;
 use kube::core::conversion::{ConversionRequest, ConversionResponse, ConversionReview};
 use kube::core::Status as KubeStatus;
 use serde_json::Value;
-use std::net::SocketAddr;
+use std::{env, net::SocketAddr};
 use tracing::info;
 
 /* Todos
@@ -23,21 +23,30 @@ traces
 async fn main() {
     info!("Good morning, Nais!");
 
-    let app = Router::new().route("/convert", post(convert));
+    let app = Router::new()
+        .route("/convert", post(convert))
+        .route("/health", get(health))
+        .route("/ready", get(ready));
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
-    let config = RustlsConfig::from_pem_file("./cert.pem", "./key.pem")
+    let cert_path = env::var("TLS_CERT_FILE").unwrap_or_else(|_| "/app/tls.crt".to_string());
+    let key_path = env::var("TLS_KEY_FILE").unwrap_or_else(|_| "/app/tls.key".to_string());
+    info!(cert_path = %cert_path, key_path = %key_path, "using TLS certs");
+    let config = RustlsConfig::from_pem_file(cert_path, key_path)
         .await
         .expect("certs");
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
 
     axum_server::bind_rustls(addr, config)
         .serve(app.into_make_service())
         .await
         .unwrap();
 }
+
+async fn health() -> &'static str { "ok" }
+async fn ready() -> &'static str { "ok" }
 
 /// this is only for v1-v2 for aivenapps
 async fn convert(Json(review): Json<ConversionReview>) -> Json<ConversionReview> {
