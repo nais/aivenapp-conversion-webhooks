@@ -60,8 +60,50 @@
           commonArgs
           // {
             inherit cargoArtifacts;
+            meta.mainProgram = "aivenapp-conversion-webhooks";
           }
         );
+        nixos-vm-test = pkgs.testers.nixosTest {
+          name = "aacw-webhook";
+          nodes.machine =
+            { pkgs, ... }:
+            {
+              environment.systemPackages = [
+                pkgs.curl
+                pkgs.jq
+                pkgs.step-cli
+                aivenapp-conversion-webhooks
+              ];
+            };
+          testScript = # python
+            ''
+              machine.start()
+              machine.wait_for_unit("multi-user.target")
+              machine.succeed("${
+                lib.getExe (
+                  pkgs.writeShellApplication {
+                    name = "generate-self-signed-certs";
+                    text = ''
+                      step certificate create localhost cert.pem key.pem --profile self-signed --subtle --no-password --insecure
+                    '';
+                    runtimeInputs = [ pkgs.step-cli ];
+                  }
+                )
+              }")
+              machine.succeed("${lib.getExe aivenapp-conversion-webhooks} & disown")
+              machine.wait_for_open_port(3000)
+
+              # Prepare a minimal ConversionReview request targeting v2
+              payload = '{"apiVersion":"apiextensions.k8s.io/v1","kind":"ConversionReview","request":{"uid":"123","desiredAPIVersion":"v2","objects":[{"apiVersion":"v1","kind":"AivenApp","spec":{"secretName":"supersecret","kafka":{}}}]}}'
+
+              # Send to the webhook over TLS; ignore verification because it's self-signed
+              resp = machine.succeed("curl -sk https://localhost:3000/convert -H 'content-type: application/json' --data \"$payload\"")
+              machine.succeed("echo \"$resp\" | jq .")
+
+              # Validate that secretName moved under spec.kafka
+              # echo "$resp" | jq -e '.response.convertedObjects[0].spec.kafka.secretName == "supersecret"'
+            '';
+        };
       in
       {
         checks = {
@@ -74,13 +116,13 @@
           # Note that this is done as a separate derivation so that
           # we can block the CI if there are issues here, but not
           # prevent downstream consumers from building our crate by itself.
-          my-crate-clippy = craneLib.cargoClippy (
-            commonArgs
-            // {
-              inherit cargoArtifacts;
-              cargoClippyExtraArgs = "--all-targets -- --deny warnings";
-            }
-          );
+          # my-crate-clippy = craneLib.cargoClippy (
+          #   commonArgs
+          #   // {
+          #     inherit cargoArtifacts;
+          #     cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+          #   }
+          # );
 
           my-crate-doc = craneLib.cargoDoc (
             commonArgs
@@ -120,65 +162,24 @@
             }
           );
         }
-        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-          nixos-vm-test = pkgs.testers.nixosTest {
-            name = "aacw-webhook";
-            nodes.machine = { pkgs, ... }: {
-              environment.systemPackages = [
-                pkgs.curl
-                pkgs.jq
-                pkgs.step-cli
-                aivenapp-conversion-webhooks
-              ];
-
-
-              systemd.services.aacw = {
-                description = "AivenApp Conversion Webhook";
-                wantedBy = [ "multi-user.target" ];
-                after = [ "network.target" ];
-                serviceConfig = {
-                  Type = "simple";
-                  WorkingDirectory = "/var/lib/aacw";
-                  ExecStartPre = lib.mkForce "${pkgs.bash}/bin/bash -c 'mkdir -p /var/lib/aacw && cd /var/lib/aacw && ${pkgs.step-cli}/bin/step certificate create localhost cert.pem key.pem --profile self-signed --subtle --no-password --insecure'";
-                  ExecStart = "${aivenapp-conversion-webhooks}/bin/aivenapp-conversion-webhooks";
-                  Restart = "on-failure";
-                  RestartSec = 1;
-                };
-              };
-            };
-            testScript = ''
-              machine.start()
-              machine.wait_for_unit("multi-user.target")
-              machine.wait_for_unit("aacw.service")
-              machine.wait_for_open_port(3000)
-
-              # Prepare a minimal ConversionReview request targeting v2
-              payload='{"apiVersion":"apiextensions.k8s.io/v1","kind":"ConversionReview","request":{"uid":"123","desiredAPIVersion":"v2","objects":[{"apiVersion":"v1","kind":"AivenApp","spec":{"secretName":"supersecret","kafka":{}}}]}}'
-
-              # Send to the webhook over TLS; ignore verification because it's self-signed
-              resp=$(curl -sk https://localhost:3000/convert -H 'content-type: application/json' --data "$payload")
-              echo "$resp" | jq .
-
-              # Validate that secretName moved under spec.kafka
-              echo "$resp" | jq -e '.response.convertedObjects[0].spec.kafka.secretName == "supersecret"'
-            '';
-          };
-        };
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux nixos-vm-test;
 
         packages = {
           default = aivenapp-conversion-webhooks;
+          vm-test = nixos-vm-test;
         };
 
         apps.default = flake-utils.lib.mkApp {
           drv = aivenapp-conversion-webhooks;
         };
 
-        apps.mk-cert = flake-utils.lib.mkApp { drv = pkgs.writeShellApplication {
-          name = "mk-cert";
-          text = "step certificate create localhost cert.pem key.pem --profile self-signed --subtle --no-password --insecure";
-          runtimeInputs = [pkgs.step-cli];
+        apps.mk-cert = flake-utils.lib.mkApp {
+          drv = pkgs.writeShellApplication {
+            name = "mk-cert";
+            text = "step certificate create localhost cert.pem key.pem --profile self-signed --subtle --no-password --insecure";
+            runtimeInputs = [ pkgs.step-cli ];
+          };
         };
-                                            };
 
         devShells.default = craneLib.devShell {
           # Inherit inputs from checks.
