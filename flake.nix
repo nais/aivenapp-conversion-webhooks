@@ -3,15 +3,15 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-
-    crane.url = "github:ipetkov/crane";
-
     flake-utils.url = "github:numtide/flake-utils";
 
+    kubegen.url = "github:farcaller/nix-kube-generators";
     treefmt-nix = {
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    crane.url = "github:ipetkov/crane";
     advisory-db = {
       url = "github:rustsec/advisory-db";
       flake = false;
@@ -24,6 +24,7 @@
       system:
       let
         pkgs = inputs.nixpkgs.legacyPackages.${system};
+        kubelib = inputs.kubegen.lib { inherit pkgs; };
 
         inherit (pkgs) lib;
 
@@ -47,6 +48,8 @@
           # MY_CUSTOM_VAR = "some value";
         };
 
+        crateData = lib.importTOML ./Cargo.toml;
+
         # Build *just* the cargo dependencies, so we can reuse
         # all of that work (e.g. via cachix) when running in CI
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
@@ -57,11 +60,12 @@
           commonArgs
           // {
             inherit cargoArtifacts;
-            meta.mainProgram = "aivenapp-conversion-webhooks";
+            meta.mainProgram = crateData.package.name;
+            # version = crateData.package.version; # Test to see if this had a "data " string prefix
           }
         );
         nixos-vm-test = pkgs.testers.nixosTest {
-          name = "aacw-webhook";
+          name = "${crateData.name}-certificates-integrationtest";
           nodes.machine =
             { pkgs, ... }:
             {
@@ -163,8 +167,7 @@
               cargoNextestPartitionsExtraArgs = "--no-tests=pass";
             }
           );
-        }
-        ;
+        };
 
         formatter = inputs.treefmt-nix.lib.mkWrapper pkgs {
           programs.nixfmt.enable = true;
@@ -174,10 +177,47 @@
         packages = {
           default = aivenapp-conversion-webhooks;
           vm-test = nixos-vm-test;
+          fasit-feature =
+            lib.pipe
+              {
+                inherit (crateData.package) name;
+                chart = ./fasit-chart;
+                # namespace = "aivenapp-conversion-webhooks";
+                extraOpts = [
+                  # --set-json stringArray                       set JSON values on the command line (can specify multiple or separate values with commas: key1=jsonval1,key2=jsonval2)
+                  # "--set-json=chart.metadata.version=${crateData.package.version}"
+                  # "--set-json=chart.metadata.version=CAAAAAAAAAAARL"
+                  # "--set-foobar=chart.metadata.version=CAAAAAAAAAAARL"
+                  "--set-json='{\"chart\":{\"metadata\":{\"version\": \"${crateData.package.version}\"}}}'"
+                ];
+                values = {
+                  # inherit (crateData.package) version;
+                  # aivenapp-conversion-webhooks.replicationMode = 1;
+                  # deployment.replicaCount = 1;
+                  # persistence = {
+                  #   meta.storageClass = "zfspv";
+                  #   meta.size = "100Mi";
+                  #   data.storageClass = "zfspv";
+                  #   data.size = "1Gi";
+                  # };
+                  # monitoring.metrics.enabled = true;
+                  # monitoring.metrics.serviceMonitor.enabled = true;
+
+                  # podAnnotations."io.cilium.proxy-visibility" = "<Egress/53/UDP/DNS>,<Ingress/3900/TCP/HTTP>,<Ingress/3902/TCP/HTTP>,<Ingress/3903/TCP/HTTP>";
+                };
+              }
+              [
+                kubelib.buildHelmChart
+                builtins.readFile
+                kubelib.fromYAML
+                # (builtins.map patchService)
+                kubelib.mkList
+                kubelib.toYAMLFile
+              ];
         }
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           image = pkgs.dockerTools.buildLayeredImage {
-            name = "aivenapp-conversion-webhooks";
+            name = crateData.package.name;
             tag = "latest";
             contents = [ aivenapp-conversion-webhooks ];
             config = {
@@ -216,6 +256,7 @@
           packages = [
             pkgs.rust-analyzer
             pkgs.step-cli
+            pkgs.kubernetes-helm
           ];
         };
       }

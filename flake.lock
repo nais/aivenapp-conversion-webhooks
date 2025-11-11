@@ -49,6 +49,21 @@
         "type": "github"
       }
     },
+    "kubegen": {
+      "locked": {
+        "lastModified": 1762437901,
+        "narHash": "sha256-5yuJODagAq+aMXQAT2c0gfXKLqapmA6eUHR33jKNHuU=",
+        "owner": "farcaller",
+        "repo": "nix-kube-generators",
+        "rev": "810dcf792081790648ba9ae705b9a2286115ace8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "farcaller",
+        "repo": "nix-kube-generators",
+        "type": "github"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1762361079,
@@ -70,6 +85,7 @@
         "advisory-db": "advisory-db",
         "crane": "crane",
         "flake-utils": "flake-utils",
+        "kubegen": "kubegen",
         "nixpkgs": "nixpkgs",
         "treefmt-nix": "treefmt-nix"
       }
