@@ -8,6 +8,10 @@
 
     flake-utils.url = "github:numtide/flake-utils";
 
+    treefmt-nix = {
+      url = "github:numtide/treefmt-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     advisory-db = {
       url = "github:rustsec/advisory-db";
       flake = false;
@@ -15,22 +19,15 @@
   };
 
   outputs =
-    {
-      self,
-      nixpkgs,
-      crane,
-      flake-utils,
-      advisory-db,
-      ...
-    }:
-    flake-utils.lib.eachDefaultSystem (
+    inputs:
+    inputs.flake-utils.lib.eachDefaultSystem (
       system:
       let
-        pkgs = nixpkgs.legacyPackages.${system};
+        pkgs = inputs.nixpkgs.legacyPackages.${system};
 
         inherit (pkgs) lib;
 
-        craneLib = crane.mkLib pkgs;
+        craneLib = inputs.crane.mkLib pkgs;
         src = craneLib.cleanCargoSource ./.;
 
         # Common arguments can be set here to avoid repeating them later
@@ -167,36 +164,40 @@
             }
           );
         }
-        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux nixos-vm-test;
+        ;
 
-        formatter = pkgs.nixfmt-rfc-style;
+        formatter = inputs.treefmt-nix.lib.mkWrapper pkgs {
+          programs.nixfmt.enable = true;
+          programs.rustfmt.enable = true;
+        };
 
-        packages =
-          {
-            default = aivenapp-conversion-webhooks;
-            vm-test = nixos-vm-test;
-          }
-          // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-            image = pkgs.dockerTools.buildLayeredImage {
-              name = "aivenapp-conversion-webhooks";
-              tag = "latest";
-              contents = [ aivenapp-conversion-webhooks ];
-              config = {
-                WorkingDir = "/app";
-                User = "65532:65532"; # v0v, some number
-                Entrypoint = [ "${aivenapp-conversion-webhooks}/bin/aivenapp-conversion-webhooks" ];
-                ExposedPorts = [ "3000/tcp" ];
-                Env = [ "RUST_LOG=info" ];
-                Volumes = { "/app" = {}; };
+        packages = {
+          default = aivenapp-conversion-webhooks;
+          vm-test = nixos-vm-test;
+        }
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          image = pkgs.dockerTools.buildLayeredImage {
+            name = "aivenapp-conversion-webhooks";
+            tag = "latest";
+            contents = [ aivenapp-conversion-webhooks ];
+            config = {
+              WorkingDir = "/app";
+              User = "65532:65532"; # v0v, some number
+              Entrypoint = [ "${aivenapp-conversion-webhooks}/bin/aivenapp-conversion-webhooks" ];
+              ExposedPorts = [ "3000/tcp" ];
+              Env = [ "RUST_LOG=info" ];
+              Volumes = {
+                "/app" = { };
               };
             };
           };
+        };
 
-        apps.default = flake-utils.lib.mkApp {
+        apps.default = inputs.flake-utils.lib.mkApp {
           drv = aivenapp-conversion-webhooks;
         };
 
-        apps.mk-cert = flake-utils.lib.mkApp {
+        apps.mk-cert = inputs.flake-utils.lib.mkApp {
           drv = pkgs.writeShellApplication {
             name = "mk-cert";
             text = "step certificate create localhost cert.pem key.pem --profile self-signed --subtle --no-password --insecure";
@@ -206,7 +207,7 @@
 
         devShells.default = craneLib.devShell {
           # Inherit inputs from checks.
-          checks = self.checks.${system};
+          checks = inputs.self.checks.${system};
 
           # Additional dev-shell environment variables can be set directly
           # MY_CUSTOM_DEVELOPMENT_VAR = "something else";

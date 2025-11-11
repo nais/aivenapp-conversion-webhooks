@@ -1,24 +1,25 @@
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use axum::{
-    Json, Router,
     routing::{get, post},
+    Json, Router,
 };
 use axum_server::tls_rustls::RustlsConfig;
-use kube::core::Status as KubeStatus;
 use kube::core::conversion::{ConversionRequest, ConversionResponse, ConversionReview};
+use kube::core::Status as KubeStatus;
 use serde_json::Value;
 use std::{env, net::SocketAddr};
 use tracing::info;
 
 /* Todos
 
-Use tls certs from cert manager
-have a tls cert integration test
-nix docker -> Ci
+[x] Use tls certs from cert manager
+[x] have a tls cert integration test
+[x] nix docker -> Ci
 fasit feature
-do conversion up to desired version in a generic manner, Eg 1 then 2 then 3 ... $Desired_version
 metrics
 traces
+signal handling -> graceful shutudown
+do conversion up to desired version in a generic manner, Eg 1 then 2 then 3 ... $Desired_version
 
  */
 
