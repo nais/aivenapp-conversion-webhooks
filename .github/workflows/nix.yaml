@@ -38,7 +38,7 @@ jobs:
         uses: "google-github-actions/auth@b7593ed2efd1c1617e1b0254da33b86225adb2a5" # ratchet:google-github-actions/auth@v2.1.12
         with:
           workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: "gh-aivenator@nais-io.iam.gserviceaccount.com"
+          service_account: "gh-aivenapp-conversion-webhook@nais-io.iam.gserviceaccount.com"
           token_format: "access_token"
       - name: "Set up Cloud SDK"
         uses: "google-github-actions/setup-gcloud@cb1e50a9932213ecece00a606661ae9ca44f3397" # ratchet:google-github-actions/setup-gcloud@v1
@@ -50,13 +50,10 @@ jobs:
         name: "Setup Helm"
         with:
           version: "3.8.0"
-      - name: Set versions
-        run: |-
-          yq e '.version = "${{ needs.build.outputs.version }}"' --inplace "fasit-chart/Chart.yaml"
-          yq e '.image.tag = "${{ needs.build.outputs.version }}"' --inplace "fasit-chart/values.yaml"
       - name: Build Chart
         run: |-
-          helm package "aivenapp-conversion-webhooks"
+          nix build .#fasit-feature -o aivenapp-conversion-webhooks
+          helm package aivenapp-conversion-webhooks
       - name: Push Chart
         if: github.ref == 'refs/heads/main'
         run: |-
@@ -64,8 +61,8 @@ jobs:
             helm push "$chart" oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature
           done
 
-  deploy:
-    name: Deploy;
+  rollout:
+    name: Rollout
     if: github.actor != 'dependabot[bot]' && github.ref == 'refs/heads/main'
     needs:
       - build
@@ -74,14 +71,7 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - name: Deploy-prod
-        uses: nais/deploy/actions/deploy@v2
-        env:
-          IMAGE: ${{ steps.build.outputs.image }}
-          CLUSTER: prod-gcp
-          RESOURCE: spec.yaml
       - uses: nais/fasit-deploy@v2 # ratchet:exclude
         with:
-          chart: oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature/aivenator
+          chart: oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature/aivenapp-conversion-webhooks
           version: ${{ needs.build.outputs.version }}
