@@ -5,7 +5,6 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
 
-    kubegen.url = "github:farcaller/nix-kube-generators";
     treefmt-nix = {
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -24,7 +23,6 @@
       system:
       let
         pkgs = inputs.nixpkgs.legacyPackages.${system};
-        kubelib = inputs.kubegen.lib { inherit pkgs; };
 
         inherit (pkgs) lib;
 
@@ -240,21 +238,28 @@
         }
 
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-          image = pkgs.dockerTools.buildLayeredImage {
-            name = crateData.package.name;
-            tag = version;
-            contents = [ aacw ];
-            config = {
-              WorkingDir = "/app";
-              User = "65532:65532"; # v0v, some number
-              Entrypoint = [ (lib.getExe aacw) ];
-              ExposedPorts = [ "3000/tcp" ];
-              Env = [ "RUST_LOG=info" ];
-              Volumes = {
-                "/app" = { };
+          image =
+            (pkgs.dockerTools.buildLayeredImage {
+              name = crateData.package.name;
+              tag = version;
+              contents = [ aacw ];
+              config = {
+                WorkingDir = "/app";
+                User = "65532:65532";
+                Entrypoint = [ (lib.getExe aacw) ];
+                ExposedPorts = {
+                  "3000/tcp" = { };
+                };
+                Env = [ "RUST_LOG=info" ];
+                Volumes = {
+                  "/app" = { };
+                };
               };
-            };
-          };
+            }).overrideAttrs
+              (old: {
+                imageName = crateData.package.name;
+                imageTag = version;
+              });
         };
 
         apps.default = inputs.flake-utils.lib.mkApp {
