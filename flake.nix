@@ -70,7 +70,7 @@
           }
         );
         nixos-vm-test = pkgs.testers.nixosTest {
-          name = "${crateData.name}-certificates-integrationtest";
+          name = "certificates-integrationtest";
           nodes.machine =
             { pkgs, ... }:
             {
