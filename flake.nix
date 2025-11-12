@@ -30,6 +30,12 @@
 
         craneLib = inputs.crane.mkLib pkgs;
         src = craneLib.cleanCargoSource ./.;
+        dockerTag =
+          if lib.hasAttr "rev" inputs.self then
+            "${builtins.toString inputs.self.revCount}-${inputs.self.shortRev}"
+          else
+            "gitDirty";
+        version = "${crateData.package.version}-${dockerTag}";
 
         # Common arguments can be set here to avoid repeating them later
         commonArgs = {
@@ -56,12 +62,11 @@
 
         # Build the actual crate itself, reusing the dependency
         # artifacts from above.
-        aivenapp-conversion-webhooks = craneLib.buildPackage (
+        aacw = craneLib.buildPackage (
           commonArgs
           // {
-            inherit cargoArtifacts;
+            inherit cargoArtifacts version;
             meta.mainProgram = crateData.package.name;
-            # version = crateData.package.version; # Test to see if this had a "data " string prefix
           }
         );
         nixos-vm-test = pkgs.testers.nixosTest {
@@ -73,7 +78,7 @@
                 pkgs.curl
                 pkgs.jq
                 pkgs.step-cli
-                aivenapp-conversion-webhooks
+                aacw
               ];
             };
           testScript = # python
@@ -95,7 +100,7 @@
                 )
               }")
 
-              machine.succeed("TLS_CERT_FILE=/app/tls.crt TLS_KEY_FILE=/app/tls.key ${lib.getExe aivenapp-conversion-webhooks} & disown")
+              machine.succeed("TLS_CERT_FILE=/app/tls.crt TLS_KEY_FILE=/app/tls.key ${lib.getExe aacw} & disown")
               machine.wait_for_open_port(3000)
 
               out = machine.succeed("curl -sk https://localhost:3000/health")
@@ -114,7 +119,7 @@
       in
       {
         checks = {
-          inherit aivenapp-conversion-webhooks;
+          inherit aacw;
 
           # Run clippy (and deny all warnings) on the crate source,
           # again, reusing the dependency artifacts from above.
@@ -175,55 +180,74 @@
         };
 
         packages = {
-          default = aivenapp-conversion-webhooks;
+          inherit aacw;
+          default = aacw;
           vm-test = nixos-vm-test;
           fasit-feature =
+            let
+              release = {
+                inherit (crateData.package) name;
+                imageTag = version;
+                namespace = "nais-system";
+              };
+            in
             lib.pipe
               {
-                inherit (crateData.package) name;
-                chart = ./fasit-chart;
-                # namespace = "aivenapp-conversion-webhooks";
-                extraOpts = [
-                  # --set-json stringArray                       set JSON values on the command line (can specify multiple or separate values with commas: key1=jsonval1,key2=jsonval2)
-                  # "--set-json=chart.metadata.version=${crateData.package.version}"
-                  # "--set-json=chart.metadata.version=CAAAAAAAAAAARL"
-                  # "--set-foobar=chart.metadata.version=CAAAAAAAAAAARL"
-                  "--set-json='{\"chart\":{\"metadata\":{\"version\": \"${crateData.package.version}\"}}}'"
-                ];
-                values = {
-                  # inherit (crateData.package) version;
-                  # aivenapp-conversion-webhooks.replicationMode = 1;
-                  # deployment.replicaCount = 1;
-                  # persistence = {
-                  #   meta.storageClass = "zfspv";
-                  #   meta.size = "100Mi";
-                  #   data.storageClass = "zfspv";
-                  #   data.size = "1Gi";
-                  # };
-                  # monitoring.metrics.enabled = true;
-                  # monitoring.metrics.serviceMonitor.enabled = true;
-
-                  # podAnnotations."io.cilium.proxy-visibility" = "<Egress/53/UDP/DNS>,<Ingress/3900/TCP/HTTP>,<Ingress/3902/TCP/HTTP>,<Ingress/3903/TCP/HTTP>";
+                chart = import ./fasit-chart/Chart.nix { inherit version; };
+                feature = import ./fasit-chart/Feature.nix { };
+                issuer = import ./fasit-chart/certissuer.nix {
+                  inherit lib release;
+                  extraConfig = { };
+                };
+                deployment = import ./fasit-chart/deployment.nix {
+                  inherit lib aacw release;
+                  extraConfig = { };
+                };
+                service = import ./fasit-chart/service.nix {
+                  inherit lib release;
+                  extraConfig = { };
+                };
+                certificate = import ./fasit-chart/certificate.nix {
+                  inherit lib release;
+                  extraConfig = { };
                 };
               }
               [
-                kubelib.buildHelmChart
-                builtins.readFile
-                kubelib.fromYAML
-                # (builtins.map patchService)
-                kubelib.mkList
-                kubelib.toYAMLFile
+                (lib.mapAttrs (
+                  name: data:
+                  pkgs.writeTextFile {
+                    inherit name;
+                    text = builtins.toJSON data;
+                  }
+                ))
+                (
+                  files:
+                  pkgs.stdenv.mkDerivation {
+                    name = "helm-chart";
+                    dontUnpack = true;
+                    buildPhase = ''
+                      mkdir -p $out/templates
+                      cp ${files.chart} $out/Chart.yaml
+                      cp ${files.feature} $out/Feature.yaml
+                      cp ${files.issuer} $out/templates/Issuer.yaml
+                      cp ${files.deployment} $out/templates/Deployment.yaml
+                      cp ${files.service} $out/templates/Service.yaml
+                      cp ${files.certificate} $out/templates/Certificate.yaml
+                    '';
+                  }
+                )
               ];
         }
+
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           image = pkgs.dockerTools.buildLayeredImage {
             name = crateData.package.name;
-            tag = "latest";
-            contents = [ aivenapp-conversion-webhooks ];
+            tag = version;
+            contents = [ aacw ];
             config = {
               WorkingDir = "/app";
               User = "65532:65532"; # v0v, some number
-              Entrypoint = [ "${aivenapp-conversion-webhooks}/bin/aivenapp-conversion-webhooks" ];
+              Entrypoint = [ (lib.getExe aacw) ];
               ExposedPorts = [ "3000/tcp" ];
               Env = [ "RUST_LOG=info" ];
               Volumes = {
@@ -234,7 +258,7 @@
         };
 
         apps.default = inputs.flake-utils.lib.mkApp {
-          drv = aivenapp-conversion-webhooks;
+          drv = aacw;
         };
 
         apps.mk-cert = inputs.flake-utils.lib.mkApp {

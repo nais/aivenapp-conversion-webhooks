@@ -1,12 +1,14 @@
-{ release }:
 {
+  lib,
+  release,
+  extraConfig,
+}:
+lib.recursiveUpdate {
   apiVersion = "v1";
   kind = "Service";
   metadata = {
     name = "${release.name}-webhook";
-    labels = {
-      app = "${release.name}-webhook";
-    };
+    labels.app = "${release.name}-webhook";
   };
   spec = {
     type = "ClusterIP";
@@ -18,8 +20,6 @@
         name = "http";
       }
     ];
-    selector = {
-      app = "${release.name}-webhook";
-    };
+    selector.app = "${release.name}-webhook";
   };
-}
+} extraConfig

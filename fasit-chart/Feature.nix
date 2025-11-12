@@ -1,5 +1,4 @@
-{ }:
-{
+_: {
   dependencies = {
     allOf = [
       "nais-crds"
