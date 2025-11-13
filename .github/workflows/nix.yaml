@@ -58,7 +58,7 @@ jobs:
         if: github.ref == 'refs/heads/main'
         run: |-
           for chart in *.tgz; do
-            helm push "$chart" oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature
+            helm push "$chart" oci://europe-north1-docker.pkg.dev/nais-io/nais/feature
           done
 
   rollout:
@@ -73,5 +73,5 @@ jobs:
     steps:
       - uses: nais/fasit-deploy@v2 # ratchet:exclude
         with:
-          chart: oci://${{ env.GOOGLE_REGISTRY }}/nais-io/nais/feature/aivenapp-conversion-webhooks
+          chart: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature/aivenapp-conversion-webhooks
           version: ${{ needs.build.outputs.version }}
