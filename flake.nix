@@ -67,6 +67,22 @@
             meta.mainProgram = crateData.package.name;
           }
         );
+        sbom = craneLib.mkCargoDerivation (
+          commonArgs
+          // {
+            # Require the caller to specify cargoArtifacts we can use
+            inherit cargoArtifacts;
+
+            # A suffix name used by the derivation, useful for logging
+            pnameSuffix = "-sbom";
+
+            # Set the cargo command we will use and pass through the flags
+            installPhase = "mv bom.json $out";
+            buildPhaseCargoCommand = "cargo cyclonedx -f json --all --override-filename bom";
+            nativeBuildInputs = (commonArgs.nativeBuildInputs or [ ]) ++ [ pkgs.cargo-cyclonedx ];
+          }
+        );
+
         nixos-vm-test = pkgs.testers.nixosTest {
           name = "certificates-integrationtest";
           nodes.machine =
@@ -117,7 +133,7 @@
       in
       {
         checks = {
-          inherit aacw;
+          inherit aacw sbom;
 
           # Run clippy (and deny all warnings) on the crate source,
           # again, reusing the dependency artifacts from above.
@@ -149,9 +165,10 @@
           # };
 
           # # Audit dependencies
-          # my-crate-audit = craneLib.cargoAudit {
-          #   inherit src advisory-db;
-          # };
+          my-crate-audit = craneLib.cargoAudit {
+            inherit src;
+            inherit (inputs) advisory-db;
+          };
 
           # # Audit licenses
           # my-crate-deny = craneLib.cargoDeny {
@@ -178,7 +195,7 @@
         };
 
         packages = {
-          inherit aacw;
+          inherit aacw sbom;
           default = aacw;
           vm-test = nixos-vm-test;
           fasit-feature =
