@@ -18,11 +18,14 @@ jobs:
       contents: "read"
       id-token: "write"
     steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # ratchet:actions/checkout@v4
       - name: nix-build
-        uses: nais/nais-nix-action@main
+        uses: ./.github/actions/nix-nais-management-pipeline
         id: nix-build
         with:
           team: nais
+          google_login: gh-aawc@nais-io.iam.gserviceaccount.com
+          workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
     outputs:
       image: ${{ steps.nix-build.outputs.image }}
 
@@ -42,14 +45,14 @@ jobs:
         uses: "google-github-actions/auth@b7593ed2efd1c1617e1b0254da33b86225adb2a5" # ratchet:google-github-actions/auth@v2.1.12
         with:
           workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: "gh-aivenapp-conversion-webhook@nais-io.iam.gserviceaccount.com"
+          service_account: gh-aawc@nais-io.iam.gserviceaccount.com
           token_format: "access_token"
       - name: "Set up Cloud SDK"
         uses: "google-github-actions/setup-gcloud@cb1e50a9932213ecece00a606661ae9ca44f3397" # ratchet:google-github-actions/setup-gcloud@v1
       - name: "Log in to Google Artifact Registry"
         if: github.ref == 'refs/heads/main'
         run: |-
-          echo '${{ steps.auth.outputs.access_token }}' | docker login -u oauth2accesstoken --password-stdin https://${{ env.GOOGLE_REGISTRY }}
+          echo '${{ steps.auth.outputs.access_token }}' | docker login -u oauth2accesstoken --password-stdin https://europe-north1-docker.pkg.dev
       - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # ratchet:azure/setup-helm@v3
         name: "Setup Helm"
         with:

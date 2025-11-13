@@ -1,0 +1,174 @@
+# * Nais Nix Action
+# This Action is for nix flakes in a nais platform context
+# the .#image output will be uploaded to our artifact registry on GAR
+
+# TODO: Add handlers for uploads, static assets to cdn and github releases?
+
+# ** Action metadata
+name: "Nais Nix Action"
+description: "Check Nix flakes, build Nix packages and Docker images, and push the images"
+inputs:
+  # *** Google Cloud Parameters
+  team:
+    description: "Team name"
+    required: true
+  google_login:
+    description: "Google login service account"
+    required: true
+  workload_identity_provider:
+    description: "Normally a GH organization secret"
+    required: true
+  # *** Docker Parameters
+  push:
+    description: "Flag to indicate whether to push the images"
+    default: true
+  registry:
+    description: "the docker registry to use"
+    required: false
+    default: "europe-north1-docker.pkg.dev"
+  debug:
+    description: "Print lots of outputs"
+    required: false
+    default: false
+
+# *** output definitions
+outputs:
+  image:
+    description: "the full image address"
+    value: ${{ steps.set-outputs.outputs.image }}
+
+# ** Step definitions
+runs:
+  using: "composite"
+  steps:
+    - name: Get the code from git repo
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    # *** Install nix on the action runner
+    - name: Install Nix
+      uses: cachix/install-nix-action@v31
+      with:
+        extra_nix_config: |
+          extra-experimental-features = nix-command flakes pipe-operators
+          accept-flake-config = true
+
+    # *** Magic nix cache
+    - uses: DeterminateSystems/magic-nix-cache-action@main
+      with:
+        use-flakehub: disabled
+
+    # *** Flake checks
+    - name: Nix Flake Check
+      run: nix flake check -L
+      shell: bash
+
+    # *** Env setup
+    # This is the same as nais/login but without the buildx dependency
+    - name: Setup environment
+      shell: bash
+      id: setup
+      run: |
+        if [ -z "${{ inputs.team }}" ]; then
+          echo "::error ::team not set. Please provide as input."
+          exit 1
+        fi
+
+    # *** Flake analysis
+    - name: Analyze
+      id: analyze
+      shell: bash
+      run: |
+        image_name=$(nix eval .#image.drvAttrs.imageName | tr -d '"')
+        echo "image=${image_name}" >> $GITHUB_OUTPUT
+
+        image_tag=$(nix eval .#image.drvAttrs.imageTag | tr -d '"')
+        echo "tag=${image_tag}" >> $GITHUB_OUTPUT
+
+        SBOM=$(nix flake show --json | jq -r '.packages."x86_64-linux" | keys[]' | grep -q sbom && echo true || echo false)
+        echo "sbom=${SBOM}" >> $GITHUB_OUTPUT
+
+        SPEC=$(nix flake show --json | jq -r '.packages."x86_64-linux" | keys[]' | grep -q spec && echo true || echo false)
+        echo "spec=${SPEC}" >> $GITHUB_OUTPUT
+        echo "image_address=${image_name}" >> $GITHUB_OUTPUT
+
+    # *** Add banner with a summary of the image analysis etc
+    # - this should be distributed over all the steps
+    - name: add banner
+      shell: bash
+      run: |
+        echo "# ![](https://avatars.githubusercontent.com/u/29488289?s=30) Nais nix build" >> $GITHUB_STEP_SUMMARY
+        echo "Using the [nais-nix-action](https://github.com/nais/nais-nix-action)" >> $GITHUB_STEP_SUMMARY
+
+    # *** Build SBOM, should the package exist
+    - name: Build SBOM
+      if: ${{ steps.analyze.outputs.sbom == 'true' }}
+      id: build-sbom
+      shell: bash
+      run: |
+        nix build .#sbom --out-link sbom.json
+        echo "✅ Built SBOM, $(wc -l sbom.json | awk '{print $1}') lines" >> $GITHUB_STEP_SUMMARY
+        echo "sbom=sbom.json" >> $GITHUB_OUTPUT
+
+    # *** Build app spec, should the package exist
+    - name: Build spec
+      if: ${{ steps.analyze.outputs.spec == 'true' }}
+      id: build-spec
+      shell: bash
+      run: |
+        nix build .#spec --out-link spec.yaml
+        echo "✅ Built Nais spec as spec.yaml, $(wc -c spec.yaml | awk '{print $1}') bytes" >> $GITHUB_STEP_SUMMARY
+
+    - name: Upload spec
+      if: ${{ steps.analyze.outputs.spec == 'true' }}
+      uses: actions/upload-artifact@v4
+      with:
+        path: spec.yaml # what to upload
+        name: spec.yaml # what to call the upload
+
+    # *** Build and load images
+    # Build the images as a tarball, load the image and retag it with "fully qualified OCI reference name"
+    - name: Build Images
+      shell: bash
+      run: |
+        LOADED_IMAGE=$(nix build .#image --out-link result-image && docker load < result-image | awk -F ': ' '{print $2}')
+        docker tag $LOADED_IMAGE ${{ steps.analyze.outputs.image_address }}:${{ steps.analyze.outputs.tag }}
+
+        echo "✅ Built image: ${{ steps.analyze.outputs.image_address }}" >> $GITHUB_STEP_SUMMARY
+
+    - id: "auth"
+      name: "Authenticate to Google Cloud"
+      uses: "google-github-actions/auth@b7593ed2efd1c1617e1b0254da33b86225adb2a5" # ratchet:google-github-actions/auth@v2.1.12
+      with:
+        workload_identity_provider: ${{ inputs.workload_identity_provider }}
+        service_account: ${{ inputs.google_login }}
+        token_format: "access_token"
+
+    - name: Push image to registry
+      id: push
+      shell: bash
+      run: |
+        docker images
+        docker push ${{ steps.analyze.outputs.image_address }}:${{ steps.analyze.outputs.tag }}
+        docker tag ${{ steps.analyze.outputs.image_address }}:${{ steps.analyze.outputs.tag }} ${{ steps.analyze.outputs.image_address }}:latest
+
+        docker push ${{ steps.analyze.outputs.image_address }}:latest | tee push_output.txt
+        image_digest=$(grep "digest:" push_output.txt | awk '{ print $3 }')
+        echo "image_digest=${image_digest}" >> $GITHUB_OUTPUT
+
+    # *** Run cosign et al.
+    - name: "Generate SBOM, attest and sign image"
+      if: "${{ inputs.push == 'true' && steps.analyze.outputs.sbom == 'true' }}"
+      uses: nais/attest-sign@v1.3.1
+      with:
+        image_ref: ${{ steps.analyze.outputs.image_address }}@${{ steps.push.outputs.image_digest }}
+        sbom: ${{ steps.build-sbom.outputs.sbom }}
+
+    # *** These outputs are mostly used by nais/deploy-aciton
+    - name: Set outputs
+      shell: bash
+      id: set-outputs
+      run: |-
+        echo "image=${{ steps.analyze.outputs.image_address }}:${{ steps.analyze.outputs.tag }}" >> $GITHUB_OUTPUT
+        echo "sbom=${{ steps.build-sbom.outputs.sbom }}" >> $GITHUB_OUTPUT
