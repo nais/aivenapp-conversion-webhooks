@@ -132,7 +132,9 @@ runs:
     - name: Build Images
       shell: bash
       run: |
+        echo "DEBUG: 'image_address'=${{ steps.analyze.outputs.image_address }}"
         LOADED_IMAGE=$(nix build .#image --out-link result-image && docker load < result-image | awk -F ': ' '{print $2}')
+        echo "DEBUG: 'LOADED_IMAGE'=${LOADED_IMAGE}"
         docker tag $LOADED_IMAGE ${{ steps.analyze.outputs.image_address }}:${{ steps.analyze.outputs.tag }}
 
         echo "✅ Built image: ${{ steps.analyze.outputs.image_address }}" >> $GITHUB_STEP_SUMMARY
