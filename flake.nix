@@ -39,7 +39,6 @@
             "";
         dockerTag = if commitSha != "" then commitSha else "dev";
         version = "v${crateData.package.version}-${dockerTag}";
-        chartVersion = "${crateData.package.version}+${dockerTag}";
 
         # Common arguments can be set here to avoid repeating them later
         commonArgs = {
@@ -218,7 +217,7 @@
             in
             lib.pipe
               {
-                chart = import ./fasit-chart/Chart.nix { version = "1.0.0"; };
+                chart = import ./fasit-chart/Chart.nix { inherit version; };
                 feature = import ./fasit-chart/Feature.nix { };
                 issuer = import ./fasit-chart/certissuer.nix {
                   inherit lib release;

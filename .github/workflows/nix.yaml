@@ -88,7 +88,14 @@ jobs:
     permissions:
       id-token: write
     steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # ratchet:actions/checkout@v4
+      # *** Flake analysis
+      - name: Analyze
+        id: analyze
+        shell: bash
+        run: |
+          echo "FASIT_VERSION=$(nix run .#version)" >> $GITHUB_OUTPUT
       - uses: nais/fasit-deploy@v2 # ratchet:exclude
         with:
           chart: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature/aivenapp-conversion-webhooks
-          version: 1.0.0
+          version: ${{ steps.analyze.outputs.FASIT_VERSION }}
