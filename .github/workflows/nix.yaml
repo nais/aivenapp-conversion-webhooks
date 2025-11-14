@@ -86,6 +86,12 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # ratchet:actions/checkout@v4
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-experimental-features = nix-command flakes pipe-operators
+            accept-flake-config = true
       # *** Flake analysis
       - name: Analyze
         id: analyze
