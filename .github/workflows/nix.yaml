@@ -51,7 +51,6 @@ jobs:
           use-flakehub: disabled
       - id: "auth"
         name: "Authenticate to Google Cloud"
-        if: github.ref == 'refs/heads/master'
         uses: "google-github-actions/auth@b7593ed2efd1c1617e1b0254da33b86225adb2a5" # ratchet:google-github-actions/auth@v2.1.12
         with:
           workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
@@ -60,7 +59,6 @@ jobs:
       - name: "Set up Cloud SDK"
         uses: "google-github-actions/setup-gcloud@cb1e50a9932213ecece00a606661ae9ca44f3397" # ratchet:google-github-actions/setup-gcloud@v1
       - name: "Log in to Google Artifact Registry"
-        if: github.ref == 'refs/heads/master'
         run: |-
           echo '${{ steps.auth.outputs.access_token }}' | docker login -u oauth2accesstoken --password-stdin https://europe-north1-docker.pkg.dev
       - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # ratchet:azure/setup-helm@v3
@@ -72,7 +70,6 @@ jobs:
           nix build .#fasit-feature -o aivenapp-conversion-webhooks
           helm package aivenapp-conversion-webhooks
       - name: Push Chart
-        if: github.ref == 'refs/heads/master'
         run: |-
           for chart in *.tgz; do
             helm push "$chart" oci://europe-north1-docker.pkg.dev/nais-io/nais/feature
@@ -80,7 +77,6 @@ jobs:
 
   rollout:
     name: Rollout
-    if: github.actor != 'dependabot[bot]' && github.ref == 'refs/heads/master'
     needs:
       - build
       - chart
@@ -97,6 +93,7 @@ jobs:
         run: |
           echo "FASIT_VERSION=$(nix run .#version)" >> $GITHUB_OUTPUT
       - uses: nais/fasit-deploy@v2 # ratchet:exclude
+        if: github.actor != 'dependabot[bot]' && github.ref == 'refs/heads/master'
         with:
           chart: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature/aivenapp-conversion-webhooks
           version: ${{ steps.analyze.outputs.FASIT_VERSION }}
