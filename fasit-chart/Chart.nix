@@ -5,10 +5,10 @@
 {
   inherit version;
   apiVersion = "v2";
-  name = "aiven-conversion-webhooks";
+  name = "aivenapp-conversion-webhooks";
   description = "Install conversion webhooks for aivenapp versions";
   sources = [
-    "https://github.com/nais/aiven-conversion-webhooks/tree/main/fasit-chart"
+    "https://github.com/nais/aivenapp-conversion-webhooks/tree/main/fasit-chart"
   ];
   type = "application";
 }

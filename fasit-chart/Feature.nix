@@ -1,10 +1,12 @@
 _: {
-  dependencies = {
-    allOf = [
-      "nais-crds"
-      "aivenator"
-    ];
-  };
+  dependencies = [
+    {
+      allOf = [
+        "nais-crds"
+        "aivenator"
+      ];
+    }
+  ];
 
   environmentKinds = [
     "tenant"
