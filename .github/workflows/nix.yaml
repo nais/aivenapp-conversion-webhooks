@@ -91,4 +91,4 @@ jobs:
       - uses: nais/fasit-deploy@v2 # ratchet:exclude
         with:
           chart: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature/aivenapp-conversion-webhooks
-          version: ${{ needs.build.outputs.version }}
+          version: 1.0.0

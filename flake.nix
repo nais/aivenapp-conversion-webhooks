@@ -218,7 +218,7 @@
             in
             lib.pipe
               {
-                chart = import ./fasit-chart/Chart.nix { version = chartVersion; };
+                chart = import ./fasit-chart/Chart.nix { version = "1.0.0"; };
                 feature = import ./fasit-chart/Feature.nix { };
                 issuer = import ./fasit-chart/certissuer.nix {
                   inherit lib release;
