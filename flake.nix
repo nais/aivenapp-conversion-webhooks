@@ -29,17 +29,15 @@
         craneLib = inputs.crane.mkLib pkgs;
         src = craneLib.cleanCargoSource ./.;
         # Use short git SHA only; support shallow checkouts. Fallback to GITHUB_SHA or "dev".
-        dockerTag =
-          let
-            envSha = builtins.getEnv "GITHUB_SHA";
-            shortFromEnv = if envSha != "" then builtins.substring 0 7 envSha else "";
-          in
-          if lib.hasAttr "shortRev" inputs.self then
+        githubSha = builtins.getEnv "GITHUB_SHA";
+        commitSha =
+          if inputs.self ? "shortRev" then
             inputs.self.shortRev
-          else if shortFromEnv != "" then
-            shortFromEnv
+          else if githubSha != "" then
+            builtins.substring 0 7 githubSha
           else
-            "dev";
+            "";
+        dockerTag = if commitSha != "" then commitSha else "dev";
         version = "${crateData.package.version}-${dockerTag}";
 
         # Common arguments can be set here to avoid repeating them later
