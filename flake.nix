@@ -251,6 +251,7 @@
                     dontUnpack = true;
                     buildPhase = ''
                       mkdir -p $out/templates
+                      touch $out/values.yaml
                       cp ${files.chart} $out/Chart.yaml
                       cp ${files.feature} $out/Feature.yaml
                       cp ${files.issuer} $out/templates/Issuer.yaml
