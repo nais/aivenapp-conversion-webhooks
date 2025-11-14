@@ -38,7 +38,7 @@
           else
             "";
         dockerTag = if commitSha != "" then commitSha else "dev";
-        version = "${crateData.package.version}-${dockerTag}";
+        version = "v${crateData.package.version}-${dockerTag}";
 
         # Common arguments can be set here to avoid repeating them later
         commonArgs = {
