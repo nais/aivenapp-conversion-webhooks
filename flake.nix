@@ -83,8 +83,10 @@
             pnameSuffix = "-sbom";
 
             # Set the cargo command we will use and pass through the flags
-            installPhase = "mv bom.json $out";
-            buildPhaseCargoCommand = "cargo cyclonedx -f json --all --override-filename bom";
+            installPhase = # bash
+              ''mv bom.json $out'';
+            buildPhaseCargoCommand = # bash
+              ''cargo cyclonedx -f json --all --override-filename bom'';
             nativeBuildInputs = (commonArgs.nativeBuildInputs or [ ]) ++ [ pkgs.cargo-cyclonedx ];
           }
         );
