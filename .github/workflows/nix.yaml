@@ -80,7 +80,7 @@ jobs:
 
   rollout:
     name: Rollout
-    if: github.actor != 'dependabot[bot]' && github.ref == 'refs/heads/main'
+    if: github.actor != 'dependabot[bot]' && github.ref == 'refs/heads/master'
     needs:
       - build
       - chart
