@@ -36,6 +36,9 @@ outputs:
   image:
     description: "the full image address"
     value: ${{ steps.set-outputs.outputs.image }}
+  version:
+    description: "the image tag/version"
+    value: ${{ steps.set-outputs.outputs.version }}
 
 # ** Step definitions
 runs:
@@ -91,7 +94,7 @@ runs:
 
         SPEC=$(nix flake show --json | jq -r '.packages."x86_64-linux" | keys[]' | grep -q spec && echo true || echo false)
         echo "spec=${SPEC}" >> $GITHUB_OUTPUT
-        echo "image_address=\"europe-north1-docker.pkg.dev/nais-io/nais/feature/${image_name}\"" >> $GITHUB_OUTPUT
+        echo "image_address=europe-north1-docker.pkg.dev/nais-io/nais/feature/${image_name}" >> $GITHUB_OUTPUT
 
     # *** Add banner with a summary of the image analysis etc
     # - this should be distributed over all the steps
@@ -108,7 +111,7 @@ runs:
       shell: bash
       run: |
         nix build .#sbom --out-link sbom.json
-        echo "✅ Built SBOM, $(wc -l sbom.json | awk '{print $1}') lines" >> $GITHUB_STEP_SUMMARY
+        echo "Built SBOM, $(wc -l sbom.json | awk '{print $1}') lines" >> $GITHUB_STEP_SUMMARY
         echo "sbom=sbom.json" >> $GITHUB_OUTPUT
 
     # *** Build app spec, should the package exist
@@ -118,7 +121,7 @@ runs:
       shell: bash
       run: |
         nix build .#spec --out-link spec.yaml
-        echo "✅ Built Nais spec as spec.yaml, $(wc -c spec.yaml | awk '{print $1}') bytes" >> $GITHUB_STEP_SUMMARY
+        echo "Built Nais spec as spec.yaml, $(wc -c spec.yaml | awk '{print $1}') bytes" >> $GITHUB_STEP_SUMMARY
 
     - name: Upload spec
       if: ${{ steps.analyze.outputs.spec == 'true' }}
@@ -127,17 +130,13 @@ runs:
         path: spec.yaml # what to upload
         name: spec.yaml # what to call the upload
 
-    # *** Build and load images
-    # Build the images as a tarball, load the image and retag it with "fully qualified OCI reference name"
-    - name: Build Images
+    # *** Build image tarball using Nix (no Docker needed)
+    - name: Build image tarball
       shell: bash
       run: |
         echo "DEBUG: 'image_address'=${{ steps.analyze.outputs.image_address }}"
-        LOADED_IMAGE=$(nix build .#image --out-link result-image && docker load < result-image | awk -F ': ' '{print $2}')
-        echo "DEBUG: 'LOADED_IMAGE'=${LOADED_IMAGE}"
-        docker tag $LOADED_IMAGE ${{ steps.analyze.outputs.image_address }}:${{ steps.analyze.outputs.tag }}
-
-        echo "✅ Built image: ${{ steps.analyze.outputs.image_address }}" >> $GITHUB_STEP_SUMMARY
+        nix build .#image --out-link result-image
+        echo "Built image tarball at 'result-image'" >> $GITHUB_STEP_SUMMARY
 
     - id: "auth"
       name: "Authenticate to Google Cloud"
@@ -147,17 +146,63 @@ runs:
         service_account: ${{ inputs.google_login }}
         token_format: "access_token"
 
-    - name: Push image to registry
-      id: push
+    # *** Install skopeo (for copying images without Docker)
+    - name: Install skopeo
       shell: bash
       run: |
-        docker images
-        docker push ${{ steps.analyze.outputs.image_address }}:${{ steps.analyze.outputs.tag }}
-        docker tag ${{ steps.analyze.outputs.image_address }}:${{ steps.analyze.outputs.tag }} ${{ steps.analyze.outputs.image_address }}:latest
+        if ! command -v skopeo >/dev/null 2>&1; then
+          sudo apt-get update
+          sudo apt-get install -y skopeo
+        fi
 
-        docker push ${{ steps.analyze.outputs.image_address }}:latest | tee push_output.txt
-        image_digest=$(grep "digest:" push_output.txt | awk '{ print $3 }')
+    - name: Push image to registry with skopeo
+      id: push
+      shell: bash
+      env:
+        DEST: ${{ steps.analyze.outputs.image_address }}
+        TAG: ${{ steps.analyze.outputs.tag }}
+        ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+      run: |
+        set -euo pipefail
+        # Normalize potential stray quotes
+        DEST=${DEST%\"}; DEST=${DEST#\"}
+        TAG=${TAG%\"}; TAG=${TAG#\"}
+        echo "Copying image to $DEST:$TAG using skopeo"
+        skopeo copy \
+          --insecure-policy \
+          --dest-creds "oauth2accesstoken:${ACCESS_TOKEN}" \
+          docker-archive:result-image \
+          docker://$DEST:$TAG
+
+        echo "Tagging 'latest'"
+        skopeo copy \
+          --insecure-policy \
+          --dest-creds "oauth2accesstoken:${ACCESS_TOKEN}" \
+          docker-archive:result-image \
+          docker://$DEST:latest
+
+        echo "Fetching pushed image digest"
+        image_digest=$(skopeo inspect --creds "oauth2accesstoken:${ACCESS_TOKEN}" docker://$DEST:$TAG | jq -r '.Digest')
         echo "image_digest=${image_digest}" >> $GITHUB_OUTPUT
+
+    # *** Configure registry auth for cosign
+    - name: Configure registry auth for cosign
+      shell: bash
+      env:
+        ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$HOME/.docker"
+        AUTH=$(printf "oauth2accesstoken:%s" "$ACCESS_TOKEN" | base64 -w 0 2>/dev/null || printf "oauth2accesstoken:%s" "$ACCESS_TOKEN" | base64)
+        cat > "$HOME/.docker/config.json" <<JSON
+        {
+          "auths": {
+            "https://europe-north1-docker.pkg.dev": { "auth": "$AUTH" },
+            "europe-north1-docker.pkg.dev":        { "auth": "$AUTH" }
+          }
+        }
+        JSON
+        echo "DOCKER_CONFIG=$HOME/.docker" >> "$GITHUB_ENV"
 
     # *** Run cosign et al.
     - name: "Generate SBOM, attest and sign image"
@@ -174,3 +219,4 @@ runs:
       run: |-
         echo "image=${{ steps.analyze.outputs.image_address }}:${{ steps.analyze.outputs.tag }}" >> $GITHUB_OUTPUT
         echo "sbom=${{ steps.build-sbom.outputs.sbom }}" >> $GITHUB_OUTPUT
+        echo "version=${{ steps.analyze.outputs.tag }}" >> $GITHUB_OUTPUT

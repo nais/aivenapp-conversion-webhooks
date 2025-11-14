@@ -28,6 +28,7 @@ jobs:
           workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
     outputs:
       image: ${{ steps.nix-build.outputs.image }}
+      version: ${{ steps.nix-build.outputs.version }}
 
   chart:
     permissions:

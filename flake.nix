@@ -198,6 +198,8 @@
           inherit aacw sbom;
           default = aacw;
           vm-test = nixos-vm-test;
+
+          version = pkgs.writeText "version" version;
           fasit-feature =
             let
               release = {
@@ -281,6 +283,16 @@
 
         apps.default = inputs.flake-utils.lib.mkApp {
           drv = aacw;
+        };
+
+        # Print the current version/tag
+        apps.version = inputs.flake-utils.lib.mkApp {
+          drv = pkgs.writeShellApplication {
+            name = "print-version";
+            text = ''
+              printf %s "${version}"
+            '';
+          };
         };
 
         apps.mk-cert = inputs.flake-utils.lib.mkApp {
