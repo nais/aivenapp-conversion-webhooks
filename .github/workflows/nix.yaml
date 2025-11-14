@@ -40,6 +40,15 @@ jobs:
       - build
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # ratchet:actions/checkout@v4
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            extra-experimental-features = nix-command flakes pipe-operators
+            accept-flake-config = true
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+        with:
+          use-flakehub: disabled
       - id: "auth"
         name: "Authenticate to Google Cloud"
         if: github.ref == 'refs/heads/main'

@@ -46,8 +46,6 @@ runs:
   steps:
     - name: Get the code from git repo
       uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
 
     # *** Install nix on the action runner
     - name: Install Nix
