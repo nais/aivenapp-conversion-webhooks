@@ -100,7 +100,7 @@ runs:
       shell: bash
       run: |
         echo "# ![](https://avatars.githubusercontent.com/u/29488289?s=30) Nais nix build" >> $GITHUB_STEP_SUMMARY
-        echo "Using the [nais-nix-action](https://github.com/nais/nais-nix-action)" >> $GITHUB_STEP_SUMMARY
+        echo "Using the [nais-nix-fasit-action](./github/actions/nix-nais-management-pipeline/action.yml)" >> $GITHUB_STEP_SUMMARY
 
     # *** Build SBOM, should the package exist
     - name: Build SBOM
