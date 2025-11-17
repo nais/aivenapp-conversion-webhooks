@@ -10,5 +10,5 @@ lib.recursiveUpdate {
     name = "${release.name}-selfsigned-issuer";
     labels.app = release.name;
   };
-  spec = { };
+  spec.selfSigned = { };
 } extraConfig

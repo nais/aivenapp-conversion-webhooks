@@ -11,7 +11,7 @@ lib.recursiveUpdate {
     labels.app = release.name;
   };
   spec = {
-    dnsnames = [
+    dnsNames = [
       "${release.name}-webhook.${release.namespace}.svc"
       "${release.name}-webhook.${release.namespace}.svc.cluster.local"
     ];
@@ -19,6 +19,6 @@ lib.recursiveUpdate {
       kind = "Issuer";
       name = "${release.name}-selfsigned-issuer";
     };
-    secretname = "${release.name}-webhook";
+    secretName = "${release.name}-webhook";
   };
 } extraConfig
