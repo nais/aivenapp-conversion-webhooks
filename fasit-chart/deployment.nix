@@ -11,7 +11,7 @@ lib.recursiveUpdate {
     labels.app = "${release.name}-webhook";
     name = "${release.name}-webhook";
   };
-  spec.template = {
+  spec = {
     replicas = 2;
     selector.matchLabels.app = "${release.name}-webhook";
     template.metadata.labels.app = "${release.name}-webhook";
