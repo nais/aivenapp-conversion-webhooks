@@ -273,14 +273,11 @@
               config = {
                 WorkingDir = "/app";
                 User = "1069:1069";
-                Entrypoint = [ "${aacw}/bin/aiven-conversion-webhooks" ];
+                Entrypoint = [ "/bin/${crateData.package.name}" ];
                 ExposedPorts = {
                   "3000/tcp" = { };
                 };
                 Env = [ "RUST_LOG=info" ];
-                Volumes = {
-                  "/app" = { };
-                };
               };
             }).overrideAttrs
               (old: {
