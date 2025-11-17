@@ -273,7 +273,6 @@
               config = {
                 WorkingDir = "/app";
                 User = "1069:1069";
-                Entrypoint = [ "/bin/${crateData.package.name}" ];
                 ExposedPorts = {
                   "3000/tcp" = { };
                 };
