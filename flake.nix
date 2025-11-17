@@ -271,7 +271,6 @@
               tag = version;
               contents = [ aacw ];
               config = {
-                WorkingDir = "/app";
                 User = "1069:1069";
                 ExposedPorts = {
                   "3000/tcp" = { };
