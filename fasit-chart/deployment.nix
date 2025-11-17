@@ -36,6 +36,16 @@ lib.recursiveUpdate {
                 readOnly = true;
               }
             ];
+            securityContext = {
+              allowPrivilegeEscalation = false;
+              capabilities.drop = [ "ALL" ];
+              privileged = false;
+              readOnlyRootFilesystem = true;
+              runAsGroup = 1069;
+              runAsNonRoot = true;
+              runAsUser = 1069;
+              seccompProfile.type = "RuntimeDefault";
+            };
           }
         ];
         volumes = [

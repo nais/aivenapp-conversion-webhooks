@@ -272,7 +272,7 @@
               contents = [ aacw ];
               config = {
                 WorkingDir = "/app";
-                User = "65532:65532";
+                User = "1069:1069";
                 Entrypoint = [ (lib.getExe aacw) ];
                 ExposedPorts = {
                   "3000/tcp" = { };
