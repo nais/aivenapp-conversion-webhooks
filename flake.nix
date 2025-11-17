@@ -266,10 +266,14 @@
 
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           image =
-            (pkgs.dockerTools.buildLayeredImage {
+            (pkgs.dockerTools.buildImage {
               name = crateData.package.name;
               tag = version;
-              contents = [ aacw ];
+              copyToRoot = pkgs.buildEnv {
+                name = "aacw-image";
+                pathsToLink = [ "/bin" ];
+                paths = [ aacw ];
+              };
               config = {
                 User = "1069:1069";
                 ExposedPorts = {
