@@ -24,14 +24,14 @@ lib.recursiveUpdate {
             name = "aacw";
             ports = [
               {
-                containerPort = 8443;
+                containerPort = 3000;
                 name = "webhook-server";
                 protocol = "TCP";
               }
             ];
             volumeMounts = [
               {
-                mountPath = "/tmp/k8s-webhook-server/serving-certs";
+                mountPath = "/app";
                 name = "aacw-cert";
                 readOnly = true;
               }
@@ -56,9 +56,12 @@ lib.recursiveUpdate {
                 secret = {
                   items = [
                     {
-                      defaultMode = 420;
-                      key = "foobar";
-                      path = "/mount/path";
+                      key = "tls.crt";
+                      path = "tls.crt";
+                    }
+                    {
+                      key = "tls.key";
+                      path = "tls.key";
                     }
                   ];
                   name = "${release.name}-webhook";

@@ -17,7 +17,7 @@ lib.recursiveUpdate {
         port = 443;
         targetPort = "webhook-server";
         protocol = "TCP";
-        name = "http";
+        name = "https";
       }
     ];
     selector.app = "${release.name}-webhook";
