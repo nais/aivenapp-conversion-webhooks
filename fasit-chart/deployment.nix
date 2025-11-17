@@ -19,6 +19,7 @@ lib.recursiveUpdate {
       spec = {
         containers = [
           {
+            command = [ "${aacw}/bin/aiven-conversion-webhooks" ];
             image = "europe-north1-docker.pkg.dev/nais-io/nais/feature/${release.name}:${release.imageTag}";
             name = "aacw";
             ports = [
