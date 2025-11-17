@@ -279,6 +279,7 @@
                 ExposedPorts = {
                   "3000/tcp" = { };
                 };
+                Entrypoint = [ (lib.getExe aacw) ];
                 Env = [ "RUST_LOG=info" ];
               };
             }).overrideAttrs
