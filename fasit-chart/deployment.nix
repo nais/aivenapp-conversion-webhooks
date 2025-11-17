@@ -51,10 +51,20 @@ lib.recursiveUpdate {
         volumes = [
           {
             name = "aacw-cert";
-            secret = {
-              defaultMode = 420;
-              secretName = "${release.name}-webhook";
-            };
+            projected.sources = [
+              {
+                secret = {
+                  items = [
+                    {
+                      defaultMode = 420;
+                      key = "foobar";
+                      path = "/mount/path";
+                    }
+                  ];
+                  name = "${release.name}-webhook";
+                };
+              }
+            ];
           }
         ];
       };
