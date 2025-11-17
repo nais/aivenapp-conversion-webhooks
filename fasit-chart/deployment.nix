@@ -19,7 +19,6 @@ lib.recursiveUpdate {
       spec = {
         containers = [
           {
-            command = [ (lib.getExe aacw) ];
             image = "europe-north1-docker.pkg.dev/nais-io/nais/feature/${release.name}:${release.imageTag}";
             name = "aacw";
             ports = [
