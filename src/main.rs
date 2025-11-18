@@ -20,7 +20,7 @@ use tracing_subscriber::{
 [x] Use tls certs from cert manager
 [x] have a tls cert integration test
 [x] nix docker -> Ci
-fasit feature
+[x] fasit feature
 metrics
 traces
 signal handling -> graceful shutudown
