@@ -211,7 +211,7 @@
           fasit-feature =
             let
               release = {
-                inherit (crateData.package) name;
+                name = "aacw";
                 imageTag = releaseTag;
                 namespace = "nais-system";
               };
@@ -268,7 +268,7 @@
         // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
           image =
             (pkgs.dockerTools.buildImage {
-              name = crateData.package.name;
+              name = "aacw";
               tag = releaseTag;
               copyToRoot = pkgs.buildEnv {
                 name = "aacw-image";
@@ -285,7 +285,7 @@
               };
             }).overrideAttrs
               (old: {
-                imageName = crateData.package.name;
+                imageName = "aacw";
                 imageTag = releaseTag;
               });
         };

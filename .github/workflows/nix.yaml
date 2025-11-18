@@ -70,5 +70,5 @@ jobs:
       - uses: nais/fasit-deploy@v2 # ratchet:exclude
         if: github.actor != 'dependabot[bot]' && github.ref == 'refs/heads/master'
         with:
-          chart: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature/aivenapp-conversion-webhooks-chart
+          chart: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature/aivenapp-conversion-webhooks
           version: ${{ needs.build.outputs.version }}
