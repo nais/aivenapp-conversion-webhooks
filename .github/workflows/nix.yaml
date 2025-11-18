@@ -62,13 +62,13 @@ jobs:
     needs:
       - build
     runs-on: fasit-deploy
+    if: github.actor != 'dependabot[bot]' && github.ref == 'refs/heads/master'
     permissions:
       id-token: write
       contents: read
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # ratchet:actions/checkout@v4
       - uses: nais/fasit-deploy@v2 # ratchet:exclude
-        if: github.actor != 'dependabot[bot]' && github.ref == 'refs/heads/master'
         with:
           chart: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature/aivenapp-conversion-webhooks
           version: ${{ needs.build.outputs.version }}
