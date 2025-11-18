@@ -1,3 +1,5 @@
+use std::{env, io::IsTerminal, net::SocketAddr};
+
 use anyhow::{Result, bail};
 use axum::{
     Json, Router,
@@ -7,8 +9,11 @@ use axum_server::tls_rustls::RustlsConfig;
 use kube::core::Status as KubeStatus;
 use kube::core::conversion::{ConversionRequest, ConversionResponse, ConversionReview};
 use serde_json::Value;
-use std::{env, net::SocketAddr};
-use tracing::info;
+use tracing::{info, metadata::LevelFilter, warn};
+use tracing_subscriber::{
+    EnvFilter, Registry, filter, prelude::__tracing_subscriber_SubscriberExt,
+    util::SubscriberInitExt,
+};
 
 /* Todos
 
@@ -23,8 +28,48 @@ do conversion up to desired version in a generic manner, Eg 1 then 2 then 3 ... 
 
  */
 
+pub fn init_tracing_subscriber() -> Result<()> {
+    use tracing_subscriber::fmt as layer_fmt;
+
+    let (we_shall_not_json, we_shall_json) = if std::io::stdout().is_terminal() {
+        (Some(layer_fmt::layer().compact()), None)
+    } else {
+        (None, Some(layer_fmt::layer().json().flatten_event(true)))
+    };
+
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env();
+    let (we_got_valid_log_env, we_got_no_valid_log_env) = env_filter.map_or_else(
+        |_| {
+            (
+                None,
+                Some(filter::Targets::new().with_default(LevelFilter::INFO)),
+            )
+        },
+        |log_level| (Some(log_level), None),
+    );
+    Registry::default()
+        .with(we_shall_not_json)
+        .with(we_shall_json)
+        .with(we_got_valid_log_env)
+        .with(we_got_no_valid_log_env)
+        .try_init()?;
+
+    // This check is down here because log framework gets set/configured first in previous statement
+    if let Ok(log_value) = env::var("RUST_LOG") {
+        let rust_log_set_to_invalid_syntax = EnvFilter::try_from_default_env().is_err();
+        if rust_log_set_to_invalid_syntax {
+            warn!("Invalid syntax in found env var `RUST_LOG`: {}", log_value);
+        }
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() {
+    init_tracing_subscriber().unwrap();
     info!("starting app");
     rustls::crypto::ring::default_provider()
         .install_default()
