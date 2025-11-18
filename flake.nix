@@ -28,7 +28,6 @@
 
         craneLib = inputs.crane.mkLib pkgs;
         src = craneLib.cleanCargoSource ./.;
-        # Use short git SHA only; support shallow checkouts. Fallback to GITHUB_SHA or "dev".
         githubSha = builtins.getEnv "GITHUB_SHA";
         commitSha =
           if inputs.self ? "shortRev" then
@@ -38,9 +37,10 @@
           else
             "";
         dockerTag = if commitSha != "" then commitSha else "dev";
-        version = "v${crateData.package.version}-${dockerTag}";
 
-        # Common arguments can be set here to avoid repeating them later
+        crateVersion = crateData.package.version;
+        releaseTag = "v${crateVersion}-${dockerTag}";
+
         commonArgs = {
           inherit src;
           strictDeps = true;
@@ -68,7 +68,8 @@
         aacw = craneLib.buildPackage (
           commonArgs
           // {
-            inherit cargoArtifacts version;
+            inherit cargoArtifacts;
+            version = crateVersion;
             meta.mainProgram = crateData.package.name;
           }
         );
@@ -206,18 +207,18 @@
           default = aacw;
           vm-test = nixos-vm-test;
 
-          version = pkgs.writeText "version" version;
+          version = pkgs.writeText "version" releaseTag;
           fasit-feature =
             let
               release = {
                 inherit (crateData.package) name;
-                imageTag = version;
+                imageTag = releaseTag;
                 namespace = "nais-system";
               };
             in
             lib.pipe
               {
-                chart = import ./fasit-chart/Chart.nix { inherit version; };
+                chart = import ./fasit-chart/Chart.nix { version = releaseTag; };
                 feature = import ./fasit-chart/Feature.nix { };
                 issuer = import ./fasit-chart/certissuer.nix {
                   inherit lib release;
@@ -268,7 +269,7 @@
           image =
             (pkgs.dockerTools.buildImage {
               name = crateData.package.name;
-              tag = version;
+              tag = releaseTag;
               copyToRoot = pkgs.buildEnv {
                 name = "aacw-image";
                 pathsToLink = [ "/bin" ];
@@ -285,7 +286,7 @@
             }).overrideAttrs
               (old: {
                 imageName = crateData.package.name;
-                imageTag = version;
+                imageTag = releaseTag;
               });
         };
 
@@ -293,12 +294,11 @@
           drv = aacw;
         };
 
-        # Print the current version/tag
         apps.version = inputs.flake-utils.lib.mkApp {
           drv = pkgs.writeShellApplication {
             name = "print-version";
             text = ''
-              printf %s "${version}"
+              printf %s "${releaseTag}"
             '';
           };
         };
