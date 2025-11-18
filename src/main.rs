@@ -1,11 +1,11 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use axum::{
-    routing::{get, post},
     Json, Router,
+    routing::{get, post},
 };
 use axum_server::tls_rustls::RustlsConfig;
-use kube::core::conversion::{ConversionRequest, ConversionResponse, ConversionReview};
 use kube::core::Status as KubeStatus;
+use kube::core::conversion::{ConversionRequest, ConversionResponse, ConversionReview};
 use serde_json::Value;
 use std::{env, net::SocketAddr};
 use tracing::info;
@@ -75,8 +75,7 @@ async fn convert(Json(review): Json<ConversionReview>) -> Json<ConversionReview>
                 return Json(res);
             }
 
-            // this is cool actually, this lets us get the objects and we replace the old objects with an
-            // empty vec and now suddenly we dont have to worry about partial ownershit
+            /* NB!! this is cool actually, this lets us get the objects and we replace the old objects with an empty vec and now suddenly we dont have to worry about partial ownershit           */
             let objects = std::mem::take(&mut req.objects);
             let converted = objects
                 .into_iter()
