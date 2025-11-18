@@ -25,7 +25,7 @@ do conversion up to desired version in a generic manner, Eg 1 then 2 then 3 ... 
 
 #[tokio::main]
 async fn main() {
-    info!("started");
+    info!("starting app");
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");
@@ -41,8 +41,10 @@ async fn main() {
     let config = RustlsConfig::from_pem_file(cert_path, key_path)
         .await
         .expect("certs");
+    info!("finding certs");
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
 
+    info!("starting webserver");
     axum_server::bind_rustls(addr, config)
         .serve(app.into_make_service())
         .await

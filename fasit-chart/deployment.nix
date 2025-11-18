@@ -21,6 +21,12 @@ lib.recursiveUpdate {
           {
             command = [ "${aacw}/bin/${release.name}" ];
             image = "europe-north1-docker.pkg.dev/nais-io/nais/feature/aacw:${release.imageTag}";
+            env = [
+              {
+                name = "RUST_LOG";
+                value = "info";
+              }
+            ];
             name = "aacw";
             ports = [
               {
