@@ -144,7 +144,6 @@ runs:
         service_account: ${{ inputs.google_login }}
         token_format: "access_token"
 
-    # *** Install skopeo (for copying images without Docker)
     - name: Install skopeo
       shell: bash
       run: |

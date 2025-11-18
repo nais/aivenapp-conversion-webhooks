@@ -211,7 +211,7 @@
           fasit-feature =
             let
               release = {
-                name = "aacw";
+                inherit (crateData.package) name;
                 imageTag = releaseTag;
                 namespace = "nais-system";
               };
