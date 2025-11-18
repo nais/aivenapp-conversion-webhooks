@@ -18,10 +18,8 @@ jobs:
       contents: "read"
       id-token: "write"
     steps:
-      # Checkout once; composite action also checks out but this keeps workspace ready
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # ratchet:actions/checkout@v4
 
-      # Build image via local composite (installs Nix and configures cache)
       - name: nix-build
         uses: ./.github/actions/nix-nais-management-pipeline
         id: nix-build
@@ -30,7 +28,6 @@ jobs:
           google_login: gh-aawc@nais-io.iam.gserviceaccount.com
           workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
 
-      # Reuse Nix from previous step to build and package Helm chart
       - id: "auth"
         name: "Authenticate to Google Cloud"
         uses: "google-github-actions/auth@b7593ed2efd1c1617e1b0254da33b86225adb2a5" # ratchet:google-github-actions/auth@v2.1.12
@@ -73,5 +70,5 @@ jobs:
       - uses: nais/fasit-deploy@v2 # ratchet:exclude
         if: github.actor != 'dependabot[bot]' && github.ref == 'refs/heads/master'
         with:
-          chart: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature/aivenapp-conversion-webhooks
+          chart: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature/aivenapp-conversion-webhooks-chart
           version: ${{ needs.build.outputs.version }}
