@@ -11,14 +11,17 @@ concurrency:
 
 jobs:
   build:
-    name: Build
+    name: Build and Chart
     runs-on: ubuntu-latest-8-cores
     permissions:
       packages: "write"
       contents: "read"
       id-token: "write"
     steps:
+      # Checkout once; composite action also checks out but this keeps workspace ready
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # ratchet:actions/checkout@v4
+
+      # Build image via local composite (installs Nix and configures cache)
       - name: nix-build
         uses: ./.github/actions/nix-nais-management-pipeline
         id: nix-build
@@ -26,29 +29,8 @@ jobs:
           team: nais
           google_login: gh-aawc@nais-io.iam.gserviceaccount.com
           workload_identity_provider: ${{ secrets.NAIS_IO_WORKLOAD_IDENTITY_PROVIDER }}
-    outputs:
-      image: ${{ steps.nix-build.outputs.image }}
-      version: ${{ steps.nix-build.outputs.version }}
 
-  chart:
-    permissions:
-      contents: "read"
-      id-token: "write"
-    name: Build and push chart
-    runs-on: ubuntu-latest
-    needs:
-      - build
-    steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # ratchet:actions/checkout@v4
-      - name: Install Nix
-        uses: cachix/install-nix-action@v31
-        with:
-          extra_nix_config: |
-            extra-experimental-features = nix-command flakes pipe-operators
-            accept-flake-config = true
-      - uses: DeterminateSystems/magic-nix-cache-action@main
-        with:
-          use-flakehub: disabled
+      # Reuse Nix from previous step to build and package Helm chart
       - id: "auth"
         name: "Authenticate to Google Cloud"
         uses: "google-github-actions/auth@b7593ed2efd1c1617e1b0254da33b86225adb2a5" # ratchet:google-github-actions/auth@v2.1.12
@@ -74,38 +56,22 @@ jobs:
           for chart in *.tgz; do
             helm push "$chart" oci://europe-north1-docker.pkg.dev/nais-io/nais/feature
           done
+    outputs:
+      image: ${{ steps.nix-build.outputs.image }}
+      version: ${{ steps.nix-build.outputs.version }}
 
   rollout:
     name: Rollout
     needs:
       - build
-      - chart
     runs-on: fasit-deploy
     permissions:
       id-token: write
       contents: read
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # ratchet:actions/checkout@v4
-      - id: check-nix
-        shell: bash
-        run: |
-          echo "HAS_NIX=$(nix --version)" >> $GITHUB_OUTPUT
-      - name: Install Nix
-        uses: DeterminateSystems/nix-installer-action@main
-        if: startsWith( ${{ steps.check-nix.outputs.HAS_NIX }}, "nix (Nix)" )
-        with:
-          determinate: false
-          extra-conf: |
-            extra-experimental-features = nix-command flakes pipe-operators
-            accept-flake-config = true
-      # *** Flake analysis
-      - name: Analyze
-        id: analyze
-        shell: bash
-        run: |
-          echo "FASIT_VERSION=$(nix run .#version)" >> $GITHUB_OUTPUT
       - uses: nais/fasit-deploy@v2 # ratchet:exclude
         if: github.actor != 'dependabot[bot]' && github.ref == 'refs/heads/master'
         with:
           chart: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature/aivenapp-conversion-webhooks
-          version: ${{ steps.analyze.outputs.FASIT_VERSION }}
+          version: ${{ needs.build.outputs.version }}
