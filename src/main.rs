@@ -190,7 +190,7 @@ mod tests {
     use anyhow::Result;
     use serde_json::json;
     #[test]
-    fn test_removes_secretName_and_moves_to_kafka() -> Result<()> {
+    fn test_removes_secret_name_and_moves_to_kafka() -> Result<()> {
         let value = json!({
             "apiVersion": "v1",
             "spec": {
@@ -222,7 +222,7 @@ mod tests {
     }
 
     #[test]
-    fn test_leaves_kafka_unchanged_if_secretName_missing() -> Result<()> {
+    fn test_leaves_kafka_unchanged_if_secret_name_missing() -> Result<()> {
         let value = json!({
             "apiVersion": "v1",
             "spec": {
