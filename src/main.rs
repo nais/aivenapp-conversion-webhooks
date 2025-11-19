@@ -68,17 +68,14 @@ pub fn init_tracing_subscriber() -> Result<()> {
 }
 
 #[tokio::main]
-async fn main() {
-    init_tracing_subscriber().unwrap();
+async fn main() -> Result<()> {
+    init_tracing_subscriber()?;
     info!("starting app");
     rustls::crypto::ring::default_provider()
         .install_default()
         .expect("Failed to install rustls crypto provider");
 
-    let app = Router::new()
-        .route("/convert", post(convert))
-        .route("/health", get(health))
-        .route("/ready", get(ready));
+    info!("finding certs");
 
     let cert_path = env::var("TLS_CERT_FILE").unwrap_or_else(|_| "/app/tls.crt".to_string());
     let key_path = env::var("TLS_KEY_FILE").unwrap_or_else(|_| "/app/tls.key".to_string());
@@ -86,19 +83,25 @@ async fn main() {
     let config = RustlsConfig::from_pem_file(cert_path, key_path)
         .await
         .expect("certs");
-    info!("finding certs");
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+
+    let app = Router::new()
+        .route("/convert", post(convert))
+        .route("/health", get(health))
+        .route("/ready", get(ready));
 
     info!("starting webserver");
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     axum_server::bind_rustls(addr, config)
         .serve(app.into_make_service())
-        .await
-        .unwrap();
+        .await?;
+
+    Ok(())
 }
 
 async fn health() -> &'static str {
     "ok"
 }
+
 async fn ready() -> &'static str {
     "ok"
 }
@@ -113,13 +116,13 @@ async fn convert(Json(review): Json<ConversionReview>) -> Json<ConversionReview>
             let desired = req.desired_api_version.clone();
             if !(desired == "v2" || desired.ends_with("/v2")) {
                 let status = KubeStatus::failure(
-                    &format!("unsupported conversion target: {}", desired),
+                    &format!("unsupported conversion target: {desired}"),
                     "UnsupportedTarget",
                 );
-                let res = ConversionResponse::for_request(req)
+                let response = ConversionResponse::for_request(req)
                     .failure(status)
                     .into_review();
-                return Json(res);
+                return Json(response);
             }
 
             /* NB!! this is cool actually, this lets us get the objects and we replace the old objects with an empty vec and now suddenly we dont have to worry about partial ownershit           */
@@ -136,10 +139,8 @@ async fn convert(Json(review): Json<ConversionReview>) -> Json<ConversionReview>
                         .into_review(),
                 ),
                 Err(e) => {
-                    let status = KubeStatus::failure(
-                        &format!("conversion failed: {}", e),
-                        "ConversionFailed",
-                    );
+                    let status =
+                        KubeStatus::failure(&format!("conversion failed: {e}"), "ConversionFailed");
                     Json(
                         ConversionResponse::for_request(req)
                             .failure(status)
