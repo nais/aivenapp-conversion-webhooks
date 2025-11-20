@@ -27,7 +27,15 @@
         inherit (pkgs) lib;
 
         craneLib = inputs.crane.mkLib pkgs;
-        src = craneLib.cleanCargoSource ./.;
+        src = lib.fileset.toSource rec {
+          root = ./.;
+          fileset = lib.fileset.unions [
+            # Default files from crane (Rust and cargo files)
+            (craneLib.fileset.commonCargoSources root)
+            # Include all the goldenfile test jsons as well
+            ./golden
+          ];
+        };
         githubSha = builtins.getEnv "GITHUB_SHA";
         commitSha =
           if inputs.self ? "shortRev" then

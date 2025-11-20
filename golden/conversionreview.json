@@ -1,0 +1,27 @@
+{
+  "apiVersion": "apiextensions.k8s.io/v1",
+  "kind": "ConversionReview",
+  "request": {
+    "uid": "705ab4f5-6393-11e8-b7cc-42010a800002",
+    "desiredAPIVersion": "aiven.nais.io/v2",
+    "objects": [
+      {
+        "kind": "AivenApplication",
+        "apiVersion": "aiven.nais.io/v1",
+        "metadata": {
+          "creationTimestamp": "2019-09-04T14:03:02Z",
+          "name": "local-v1-test",
+          "namespace": "default",
+          "resourceVersion": "143",
+          "uid": "3415a7fc-162b-4300-b5da-fd6083580d66"
+        },
+        "spec": {
+          "secretName": "fooobar",
+          "kafka": {
+            "pool": "dev-nais-dev"
+          }
+        }
+      }
+    ]
+  }
+}

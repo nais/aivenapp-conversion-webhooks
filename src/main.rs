@@ -9,7 +9,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use kube::core::Status as KubeStatus;
 use kube::core::conversion::{ConversionRequest, ConversionResponse, ConversionReview};
 use serde_json::Value;
-use tracing::{info, metadata::LevelFilter, warn};
+use tracing::{debug, error, info, metadata::LevelFilter, warn};
 use tracing_subscriber::{
     EnvFilter, Registry, filter, prelude::__tracing_subscriber_SubscriberExt,
     util::SubscriberInitExt,
@@ -109,57 +109,69 @@ async fn ready() -> &'static str {
 /// this is only for v1-v2 for aivenapps
 async fn convert(Json(review): Json<ConversionReview>) -> Json<ConversionReview> {
     info!("received ConversionReview");
-
-    match ConversionRequest::from_review(review) {
-        Ok(mut req) => {
-            // only supports converting TO v2
-            let desired = req.desired_api_version.clone();
-            if !(desired == "v2" || desired.ends_with("/v2")) {
-                let status = KubeStatus::failure(
-                    &format!("unsupported conversion target: {desired}"),
-                    "UnsupportedTarget",
-                );
-                let response = ConversionResponse::for_request(req)
-                    .failure(status)
-                    .into_review();
-                return Json(response);
-            }
-
-            /* NB!! this is cool actually, this lets us get the objects and we replace the old objects with an empty vec and now suddenly we dont have to worry about partial ownershit           */
-            let objects = std::mem::take(&mut req.objects);
-            let converted = objects
-                .into_iter()
-                .map(drop_spec_secret)
-                .collect::<anyhow::Result<Vec<_>>>();
-
-            match converted {
-                Ok(list) => Json(
-                    ConversionResponse::for_request(req)
-                        .success(list)
-                        .into_review(),
-                ),
-                Err(e) => {
-                    let status =
-                        KubeStatus::failure(&format!("conversion failed: {e}"), "ConversionFailed");
-                    Json(
-                        ConversionResponse::for_request(req)
-                            .failure(status)
-                            .into_review(),
-                    )
-                }
-            }
-        }
-        Err(_) => {
+    debug!("{review:?}");
+    let request = match ConversionRequest::from_review(review.clone()) {
+        Ok(r) => r,
+        Err(e) => {
+            error!("{e:?}");
             let status =
                 KubeStatus::failure("request missing in ConversionReview", "InvalidRequest");
-            Json(ConversionResponse::invalid(status).into_review())
+            return Json(ConversionResponse::invalid(status).into_review());
+        }
+    };
+
+    // only supports converting TO v2
+    let desired = request.desired_api_version.clone();
+    if !(desired == "v2" || desired.ends_with("/v2")) {
+        let status = KubeStatus::failure(
+            &format!("unsupported conversion target: {desired}"),
+            "UnsupportedTarget",
+        );
+        let response = ConversionResponse::for_request(request)
+            .failure(status)
+            .into_review();
+        return Json(response);
+    }
+
+    // let response = convert_request2(request).expect("https://docs.rs/kube/latest/kube/core/conversion/struct.ConversionResponse.html should always be json parsable");
+    let response =
+        convert_request(request).expect("`ConversionResponse` should always be json parsable");
+    return axum::Json(response);
+}
+
+fn convert_request(req: ConversionRequest) -> Result<ConversionReview> {
+    let mut req = req.clone();
+
+    /* NB!! this is cool actually, this lets us get the objects and we replace the old objects with an empty vec and now suddenly we dont have to worry about partial ownershit           */
+    let objects = std::mem::take(&mut req.objects);
+    let converted = objects
+        .into_iter()
+        .map(drop_spec_secret)
+        .collect::<anyhow::Result<Vec<_>>>();
+
+    match converted {
+        Ok(list) => Ok(ConversionResponse::for_request(req)
+            .success(list)
+            .into_review()),
+        Err(e) => {
+            error!("{e:?}");
+            let status =
+                KubeStatus::failure(&format!("conversion failed: {e}"), "ConversionFailed");
+
+            Ok(ConversionResponse::for_request(req)
+                .failure(status)
+                .into_review())
         }
     }
 }
 
 fn drop_spec_secret(mut v: Value) -> Result<Value> {
     if let Some(api_version) = v.get("apiVersion") {
-        if api_version != "v1" {
+        info!("apiVersion {:?}", api_version);
+        let Some(api) = api_version.as_str() else {
+            bail!("apiVersion must be a string");
+        };
+        if !(api == "v1" || api.ends_with("/v1")) {
             bail!("not a v1");
         }
     }
@@ -249,5 +261,22 @@ mod tests {
         });
         let result = drop_spec_secret(value);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_conversion() -> Result<()> {
+        let data = include_str!("../golden/conversionreview.json");
+        let review: ConversionReview = serde_json::from_str(data)?;
+        let req = ConversionRequest::from_review(review).expect("valid ConversionReview");
+
+        let converted_review = convert_request(req)?;
+        let response = converted_review
+            .response
+            .expect("conversion response must be present");
+        assert_eq!(response.converted_objects.len(), 1);
+        let converted = &response.converted_objects[0];
+        assert!(converted["spec"].get("secretName").is_none());
+        assert_eq!(converted["spec"]["kafka"]["secretName"], "fooobar");
+        Ok(())
     }
 }
