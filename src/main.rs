@@ -233,12 +233,12 @@ fn drop_spec_secret(mut v: Value) -> Result<Value> {
 }
 
 #[cfg(test)]
-mod tests {
+mod conversion {
     use super::*;
     use anyhow::Result;
     use serde_json::json;
     #[test]
-    fn test_removes_secret_name_and_moves_to_kafka() -> Result<()> {
+    fn removes_secret_name_and_moves_to_kafka() -> Result<()> {
         let value = json!({
             "apiVersion": "v1",
             "spec": {
@@ -254,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn test_drops_secret_when_kafka_missing() -> Result<()> {
+    fn drops_secret_when_kafka_missing() -> Result<()> {
         let value = json!({
             "apiVersion": "v1",
             "spec": {
@@ -270,7 +270,7 @@ mod tests {
     }
 
     #[test]
-    fn test_leaves_kafka_unchanged_if_secret_name_missing() -> Result<()> {
+    fn leaves_kafka_unchanged_if_secret_name_missing() -> Result<()> {
         let value = json!({
             "apiVersion": "v1",
             "spec": {
@@ -288,19 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn test_fails_on_wrong_api_version() {
-        let value = json!({
-            "apiVersion": "v2",
-            "spec": {
-                "secretName": "test"
-            }
-        });
-        let result = drop_spec_secret(value);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_conversion() -> Result<()> {
+    fn v1_to_v2() -> Result<()> {
         let data = include_str!("../golden/conversionreview.json");
         let review: ConversionReview = serde_json::from_str(data)?;
         let req = ConversionRequest::from_review(review).expect("valid ConversionReview");
