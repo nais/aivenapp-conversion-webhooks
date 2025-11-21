@@ -24,7 +24,6 @@ use tracing_subscriber::{
 metrics
 traces
 signal handling -> graceful shutudown
-do conversion up to desired version in a generic manner, Eg 1 then 2 then 3 ... $Desired_version
 
  */
 
@@ -122,31 +121,77 @@ async fn convert(Json(review): Json<ConversionReview>) -> Json<ConversionReview>
 
     // only supports converting TO v2
     let desired = request.desired_api_version.clone();
-    if !(desired == "v2" || desired.ends_with("/v2")) {
-        let status = KubeStatus::failure(
-            &format!("unsupported conversion target: {desired}"),
-            "UnsupportedTarget",
-        );
-        let response = ConversionResponse::for_request(request)
-            .failure(status)
-            .into_review();
-        return Json(response);
-    }
+    let response = match desired.as_str() {
+        "aiven.nais.io/v1" => to_v1(request),
+        "aiven.nais.io/v2" => to_v2(request),
+        _ => {
+            let status = KubeStatus::failure(
+                &format!("unsupported conversion target: {desired}"),
+                "UnsupportedTarget",
+            );
+            let response = ConversionResponse::for_request(request)
+                .failure(status)
+                .into_review();
+            return Json(response);
+        }
+    };
 
-    // let response = convert_request2(request).expect("https://docs.rs/kube/latest/kube/core/conversion/struct.ConversionResponse.html should always be json parsable");
-    let response =
-        convert_request(request).expect("`ConversionResponse` should always be json parsable");
-    return axum::Json(response);
+    return axum::Json(response.expect("`ConversionResponse` should always be json parsable"));
 }
 
-fn convert_request(req: ConversionRequest) -> Result<ConversionReview> {
+fn to_v1(req: ConversionRequest) -> Result<ConversionReview> {
+    let mut req = req.clone();
+    let objects = std::mem::take(&mut req.objects);
+    let converted = objects
+        .into_iter()
+        .map(|mut v| {
+            if let Some(obj) = v.as_object_mut() {
+                obj.insert(
+                    "apiVersion".to_string(),
+                    Value::String(req.desired_api_version.clone()),
+                );
+                Ok(v)
+            } else {
+                bail!("object is not a JSON object");
+            }
+        })
+        .collect::<anyhow::Result<Vec<_>>>();
+
+    match converted {
+        Ok(list) => Ok(ConversionResponse::for_request(req)
+            .success(list)
+            .into_review()),
+        Err(e) => {
+            error!("{e:?}");
+            let status =
+                KubeStatus::failure(&format!("conversion failed: {e}"), "ConversionFailed");
+
+            Ok(ConversionResponse::for_request(req)
+                .failure(status)
+                .into_review())
+        }
+    }
+}
+
+fn to_v2(req: ConversionRequest) -> Result<ConversionReview> {
     let mut req = req.clone();
 
     /* NB!! this is cool actually, this lets us get the objects and we replace the old objects with an empty vec and now suddenly we dont have to worry about partial ownershit           */
     let objects = std::mem::take(&mut req.objects);
     let converted = objects
         .into_iter()
-        .map(drop_spec_secret)
+        .map(|v| {
+            let mut v = drop_spec_secret(v)?;
+            if let Some(obj) = v.as_object_mut() {
+                obj.insert(
+                    "apiVersion".to_string(),
+                    Value::String(req.desired_api_version.clone()),
+                );
+                Ok(v)
+            } else {
+                bail!("object is not a JSON object");
+            }
+        })
         .collect::<anyhow::Result<Vec<_>>>();
 
     match converted {
@@ -166,22 +211,13 @@ fn convert_request(req: ConversionRequest) -> Result<ConversionReview> {
 }
 
 fn drop_spec_secret(mut v: Value) -> Result<Value> {
-    if let Some(api_version) = v.get("apiVersion") {
-        info!("apiVersion {:?}", api_version);
-        let Some(api) = api_version.as_str() else {
-            bail!("apiVersion must be a string");
-        };
-        if !(api == "v1" || api.ends_with("/v1")) {
-            bail!("not a v1");
-        }
-    }
-
     if let Some(spec) = v.get_mut("spec") {
         let Some(spec_obj) = spec.as_object_mut() else {
             bail!("spec is not an object");
         };
 
         if let Some(secret_val) = spec_obj.remove("secretName") {
+            // At time of writing only v1's left w/spec.secretName are those that should move `secretName` under spec.kafka
             if let Some(kafka) = spec_obj.get_mut("kafka") {
                 let Some(kafka_obj) = kafka.as_object_mut() else {
                     bail!("spec.kafka is not an object");
@@ -269,7 +305,7 @@ mod tests {
         let review: ConversionReview = serde_json::from_str(data)?;
         let req = ConversionRequest::from_review(review).expect("valid ConversionReview");
 
-        let converted_review = convert_request(req)?;
+        let converted_review = to_v2(req)?;
         let response = converted_review
             .response
             .expect("conversion response must be present");
