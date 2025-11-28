@@ -8,7 +8,7 @@ use axum::{
 use axum_server::tls_rustls::RustlsConfig;
 use kube::core::Status as KubeStatus;
 use kube::core::conversion::{ConversionRequest, ConversionResponse, ConversionReview};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use tracing::{debug, error, info, metadata::LevelFilter, warn};
 use tracing_subscriber::{
     EnvFilter, Registry, filter, prelude::__tracing_subscriber_SubscriberExt,
@@ -122,8 +122,8 @@ async fn convert(Json(review): Json<ConversionReview>) -> Json<ConversionReview>
     // only supports converting TO v2
     let desired = request.desired_api_version.clone();
     let response = match desired.as_str() {
-        "aiven.nais.io/v1" => to_v1(request),
-        "aiven.nais.io/v2" => to_v2(request),
+        "aiven.nais.io/v1" => to_v1(request.clone()),
+        "aiven.nais.io/v2" => to_v2(request.clone()),
         _ => {
             let status = KubeStatus::failure(
                 &format!("unsupported conversion target: {desired}"),
@@ -136,100 +136,120 @@ async fn convert(Json(review): Json<ConversionReview>) -> Json<ConversionReview>
         }
     };
 
-    return axum::Json(response.expect("`ConversionResponse` should always be json parsable"));
+    match response {
+        Ok(result) => Json(result),
+        Err(error) => Json(
+            ConversionResponse::for_request(request)
+                .failure(KubeStatus::failure(
+                    "Failed conversion",
+                    error.to_string().as_str(),
+                ))
+                .into_review(),
+        ),
+    }
 }
 
 fn to_v1(req: ConversionRequest) -> Result<ConversionReview> {
-    let mut req = req.clone();
-    let objects = std::mem::take(&mut req.objects);
-    let converted = objects
+    let converted_objects = req
+        .objects
+        .clone()
         .into_iter()
-        .map(|mut v| {
-            if let Some(obj) = v.as_object_mut() {
-                obj.insert(
-                    "apiVersion".to_string(),
-                    Value::String(req.desired_api_version.clone()),
-                );
-                Ok(v)
-            } else {
-                bail!("object is not a JSON object");
-            }
+        .map(|mut object| {
+            let Some(obj) = object.as_object_mut() else {
+                bail!("Object is not a JSON object");
+            };
+
+            let Some(old_api_version) = obj
+                .get("apiVersion")
+                .and_then(|version_obj| version_obj.as_str())
+            else {
+                bail!("apiVersion string not json parsable");
+            };
+
+            let converted_obj = match old_api_version {
+                "aiven.nais.io/v1" | "aiven.nais.io/v2" => obj, // v2->v1 is backwards compatible
+                _ => bail!("Unhandled `apiVersion`: {old_api_version}"),
+            };
+
+            let mut converted_obj = converted_obj.clone();
+            converted_obj.insert(
+                "apiVersion".to_string(),
+                Value::String(req.desired_api_version.clone()),
+            );
+
+            Ok(Value::Object(converted_obj))
         })
-        .collect::<anyhow::Result<Vec<_>>>();
-
-    match converted {
-        Ok(list) => Ok(ConversionResponse::for_request(req)
-            .success(list)
-            .into_review()),
-        Err(e) => {
-            error!("{e:?}");
-            let status =
-                KubeStatus::failure(&format!("conversion failed: {e}"), "ConversionFailed");
-
-            Ok(ConversionResponse::for_request(req)
-                .failure(status)
-                .into_review())
-        }
-    }
+        .collect::<Result<Vec<_>>>()?;
+    Ok(ConversionResponse::for_request(req)
+        .success(converted_objects)
+        .into_review())
 }
 
 fn to_v2(req: ConversionRequest) -> Result<ConversionReview> {
-    let mut req = req.clone();
-
-    /* NB!! this is cool actually, this lets us get the objects and we replace the old objects with an empty vec and now suddenly we dont have to worry about partial ownershit           */
-    let objects = std::mem::take(&mut req.objects);
-    let converted = objects
+    let converted_objects = req
+        .objects
+        .clone()
         .into_iter()
-        .map(|v| {
-            let mut v = drop_spec_secret(v)?;
-            if let Some(obj) = v.as_object_mut() {
-                obj.insert(
-                    "apiVersion".to_string(),
-                    Value::String(req.desired_api_version.clone()),
-                );
-                Ok(v)
-            } else {
-                bail!("object is not a JSON object");
-            }
+        .map(|mut object| {
+            let Some(obj) = object.as_object_mut() else {
+                bail!("Object is not a JSON object");
+            };
+
+            let Some(old_api_version) = obj
+                .get("apiVersion")
+                .and_then(|version_obj| version_obj.as_str())
+            else {
+                bail!("apiVersion string not json parsable");
+            };
+
+            let converted_obj = match old_api_version {
+                "aiven.nais.io/v1" => drop_spec_secret(obj)?,
+                "aiven.nais.io/v2" => obj.clone(),
+                _ => bail!("Unhandled `apiVersion`: {old_api_version}"),
+            };
+
+            let mut converted_obj = converted_obj;
+            converted_obj.insert(
+                "apiVersion".to_string(),
+                Value::String(req.desired_api_version.clone()),
+            );
+
+            Ok(converted_obj.into())
         })
-        .collect::<anyhow::Result<Vec<_>>>();
-
-    match converted {
-        Ok(list) => Ok(ConversionResponse::for_request(req)
-            .success(list)
-            .into_review()),
-        Err(e) => {
-            error!("{e:?}");
-            let status =
-                KubeStatus::failure(&format!("conversion failed: {e}"), "ConversionFailed");
-
-            Ok(ConversionResponse::for_request(req)
-                .failure(status)
-                .into_review())
-        }
-    }
+        .collect::<Result<Vec<_>>>()?;
+    Ok(ConversionResponse::for_request(req)
+        .success(converted_objects)
+        .into_review())
 }
 
-fn drop_spec_secret(mut v: Value) -> Result<Value> {
-    if let Some(spec) = v.get_mut("spec") {
-        let Some(spec_obj) = spec.as_object_mut() else {
-            bail!("spec is not an object");
+fn drop_spec_secret(object: &mut Map<String, Value>) -> Result<Map<String, Value>> {
+    let Some(spec) = object
+        .get_mut("spec")
+        .and_then(|spec_obj| spec_obj.as_object_mut())
+    else {
+        bail!("spec is not present in object");
+    };
+
+    let Some(secret_name) = spec.remove("secretName") else {
+        // No common secret name to care about
+        return Ok(object.clone());
+    };
+
+    for sub_struct_name in ["openSearch", "kafka"] {
+        let Some(sub_struct) = spec
+            .get_mut(sub_struct_name)
+            .and_then(|ss| ss.as_object_mut())
+        else {
+            // this object does not contain the struct `spec.<sub_struct_name>`
+            continue;
         };
 
-        if let Some(secret_val) = spec_obj.remove("secretName") {
-            // At time of writing only v1's left w/spec.secretName are those that should move `secretName` under spec.kafka
-            if let Some(kafka) = spec_obj.get_mut("kafka") {
-                let Some(kafka_obj) = kafka.as_object_mut() else {
-                    bail!("spec.kafka is not an object");
-                };
-                // only set secretName inside kafka if it's missing
-                kafka_obj
-                    .entry("secretName".to_owned())
-                    .or_insert(secret_val);
-            }
-        }
+        // only set `secretName` inside the `spec.<sub_struct_name>` if it's missing
+        sub_struct
+            .entry("secretName".to_owned())
+            .or_insert(secret_name.clone());
     }
-    Ok(v)
+    Ok(object.clone())
 }
 
 #[cfg(test)]
@@ -239,13 +259,14 @@ mod conversion {
     use serde_json::json;
     #[test]
     fn removes_secret_name_and_moves_to_kafka() -> Result<()> {
-        let value = json!({
+        let mut json_value = json!({
             "apiVersion": "v1",
             "spec": {
                 "secretName": "supersecret",
                 "kafka": {}
             }
         });
+        let value = json_value.as_object_mut().unwrap();
 
         let result = drop_spec_secret(value)?;
         assert!(result["spec"].get("secretName").is_none());
@@ -255,12 +276,13 @@ mod conversion {
 
     #[test]
     fn drops_secret_when_kafka_missing() -> Result<()> {
-        let value = json!({
+        let mut json_value = json!({
             "apiVersion": "v1",
             "spec": {
-                "secretName": "topsecret"
+                "secretName": "supersecret",
             }
         });
+        let value = json_value.as_object_mut().unwrap();
 
         let result = drop_spec_secret(value)?;
         assert!(result["spec"].get("secretName").is_none());
@@ -271,7 +293,7 @@ mod conversion {
 
     #[test]
     fn leaves_kafka_unchanged_if_secret_name_missing() -> Result<()> {
-        let value = json!({
+        let mut json_value = json!({
             "apiVersion": "v1",
             "spec": {
                 "kafka": {
@@ -280,6 +302,7 @@ mod conversion {
                 }
             }
         });
+        let value = json_value.as_object_mut().unwrap();
 
         let result = drop_spec_secret(value)?;
         assert!(result["spec"].get("secretName").is_none());
