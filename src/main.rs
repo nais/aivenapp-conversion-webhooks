@@ -109,7 +109,7 @@ async fn ready() -> &'static str {
 async fn convert(Json(review): Json<ConversionReview>) -> Json<ConversionReview> {
     info!("received ConversionReview");
     debug!("{review:?}");
-    let request = match ConversionRequest::from_review(review.clone()) {
+    let request = match ConversionRequest::from_review(review) {
         Ok(r) => r,
         Err(e) => {
             error!("{e:?}");
@@ -129,10 +129,11 @@ async fn convert(Json(review): Json<ConversionReview>) -> Json<ConversionReview>
                 &format!("unsupported conversion target: {desired}"),
                 "UnsupportedTarget",
             );
-            let response = ConversionResponse::for_request(request)
-                .failure(status)
-                .into_review();
-            return Json(response);
+            return Json(
+                ConversionResponse::for_request(request)
+                    .failure(status)
+                    .into_review(),
+            );
         }
     };
 
