@@ -1,6 +1,6 @@
 use std::{env, io::IsTerminal, net::SocketAddr};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use axum::{
     Json, Router,
     routing::{get, post},
@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
     info!("starting app");
     rustls::crypto::ring::default_provider()
         .install_default()
-        .expect("Failed to install rustls crypto provider");
+        .map_err(|e| anyhow::anyhow!("Failed to install rustls crypto provider: {e:?}"))?;
 
     info!("finding certs");
 
@@ -81,7 +81,7 @@ async fn main() -> Result<()> {
     info!(cert_path = %cert_path, key_path = %key_path, "using TLS certs");
     let config = RustlsConfig::from_pem_file(cert_path, key_path)
         .await
-        .expect("certs");
+        .context("failed to load TLS certificates")?;
 
     let app = Router::new()
         .route("/convert", post(convert))
