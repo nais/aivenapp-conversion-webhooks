@@ -99,6 +99,30 @@
           }
         );
 
+        certGenerator = lib.getExe (
+          pkgs.writeShellApplication {
+            name = "generate-self-signed-certs";
+            text = ''
+              set -euo pipefail
+              cd /app
+              step certificate create localhost tls.crt tls.key --profile self-signed --subtle --no-password --insecure
+            '';
+            runtimeInputs = [ pkgs.step-cli ];
+          }
+        );
+
+        serverRunner = lib.getExe (
+          pkgs.writeShellApplication {
+            name = "run-aacw-server";
+            text = ''
+              set -euo pipefail
+              cd /app
+              TLS_CERT_FILE=/app/tls.crt TLS_KEY_FILE=/app/tls.key ${lib.getExe aacw}
+            '';
+            runtimeInputs = [ aacw ];
+          }
+        );
+
         nixos-vm-test = pkgs.testers.nixosTest {
           name = "certificates-integrationtest";
           nodes.machine =
@@ -113,29 +137,22 @@
             };
           testScript = # python
             ''
+              cert_cmd = "${certGenerator}"
+              server_cmd = "${serverRunner}"
+
               machine.start()
               machine.wait_for_unit("multi-user.target")
               machine.succeed("mkdir -p /app")
-              machine.succeed("${
-                lib.getExe (
-                  pkgs.writeShellApplication {
-                    name = "generate-self-signed-certs";
-                    text = ''
-                      set -euo pipefail
-                      cd /app
-                      step certificate create localhost tls.crt tls.key --profile self-signed --subtle --no-password --insecure
-                    '';
-                    runtimeInputs = [ pkgs.step-cli ];
-                  }
-                )
-              }")
+              machine.succeed(cert_cmd)
 
-              machine.succeed("TLS_CERT_FILE=/app/tls.crt TLS_KEY_FILE=/app/tls.key ${lib.getExe aacw} & disown")
+              machine.succeed(server_cmd + " & disown")
               machine.wait_for_open_port(3000)
 
-              out = machine.succeed("curl -sk https://localhost:3000/health")
-              out = machine.succeed("curl -sk https://localhost:3000/ready")
-              assert out.strip() == "ok"
+              def get(path: str) -> str:
+                  return machine.succeed(f"curl -sk https://localhost:3000/{path}")
+
+              assert get("health").strip() == "ok"
+              assert get("ready").strip() == "ok"
 
               machine.succeed("""cat >/tmp/payload.json <<'EOF'
               {"apiVersion":"apiextensions.k8s.io/v1","kind":"ConversionReview","request":{"uid":"123","desiredAPIVersion":"v2","objects":[{"apiVersion":"v1","kind":"AivenApp","spec":{"secretName":"supersecret","kafka":{}}}]}}
@@ -143,7 +160,7 @@
               """)
               resp = machine.succeed("curl -sk https://localhost:3000/convert -H 'content-type: application/json' --data @/tmp/payload.json")
               # Basic parse to ensure it's valid JSON
-              machine.succeed("printf %s \"$resp\" | jq . >/dev/null")
+              machine.succeed(f"printf %s \"{resp}\" | jq . >/dev/null")
             '';
         };
       in
