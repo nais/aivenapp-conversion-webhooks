@@ -142,6 +142,7 @@
                 serviceConfig = {
                   ExecStart = "${serverRunner}";
                   Restart = "on-failure";
+                  Environment = "RUST_LOG=info";
                 };
               };
             };
@@ -158,7 +159,7 @@
               machine.wait_for_open_port(3000)
 
               def get(path: str) -> str:
-                  return machine.succeed(f"curl -sk https://localhost:3000/{path}")
+                  return machine.succeed(f"curl -skf https://localhost:3000/{path}")
 
               assert get("health").strip() == "ok"
               assert get("ready").strip() == "ok"
@@ -167,10 +168,12 @@
               {"apiVersion":"apiextensions.k8s.io/v1","kind":"ConversionReview","request":{"uid":"123","desiredAPIVersion":"aiven.nais.io/v2","objects":[{"apiVersion":"aiven.nais.io/v1","kind":"AivenApp","spec":{"secretName":"supersecret","kafka":{}}}]}}
               EOF
               """)
-              resp = machine.succeed("curl -sk https://localhost:3000/convert -H 'content-type: application/json' --data @/tmp/payload.json")
+              resp = machine.succeed("curl -skf https://localhost:3000/convert -H 'content-type: application/json' --data @/tmp/payload.json")
               import json
               obj = json.loads(resp)
               converted = obj["response"]["convertedObjects"][0]
+              assert obj["response"]["uid"] == "123"
+              assert converted["apiVersion"] == "aiven.nais.io/v2"
               assert converted["spec"]["kafka"]["secretName"] == "supersecret"
               assert "secretName" not in converted["spec"]
 
@@ -180,11 +183,23 @@
               {"apiVersion":"apiextensions.k8s.io/v1","kind":"ConversionReview","request":{"uid":"456","desiredAPIVersion":"aiven.nais.io/v2","objects":[{"apiVersion":"aiven.nais.io/v1","kind":"AivenApp","spec":{"kafka":{}}}]}}
               EOF
               """)
-              resp_no_common = machine.succeed("curl -sk https://localhost:3000/convert -H 'content-type: application/json' --data @/tmp/payload-no-common.json")
+              resp_no_common = machine.succeed("curl -skf https://localhost:3000/convert -H 'content-type: application/json' --data @/tmp/payload-no-common.json")
               obj_no_common = json.loads(resp_no_common)
               converted_no_common = obj_no_common["response"]["convertedObjects"][0]
               assert "secretName" not in converted_no_common["spec"]
               assert "secretName" not in converted_no_common["spec"]["kafka"]
+
+              # v2 -> v2 should be a no-op for the object contents.
+              machine.succeed("""cat >/tmp/payload-v2.json <<'EOF'
+              {"apiVersion":"apiextensions.k8s.io/v1","kind":"ConversionReview","request":{"uid":"789","desiredAPIVersion":"aiven.nais.io/v2","objects":[{"apiVersion":"aiven.nais.io/v2","kind":"AivenApp","spec":{"kafka":{"secretName":"keepme"}}}]}}
+              EOF
+              """)
+              resp_v2 = machine.succeed("curl -skf https://localhost:3000/convert -H 'content-type: application/json' --data @/tmp/payload-v2.json")
+              obj_v2 = json.loads(resp_v2)
+              converted_v2 = obj_v2["response"]["convertedObjects"][0]
+              assert obj_v2["response"]["uid"] == "789"
+              assert converted_v2["apiVersion"] == "aiven.nais.io/v2"
+              assert converted_v2["spec"]["kafka"]["secretName"] == "keepme"
 
               machine.shutdown()
             '';
