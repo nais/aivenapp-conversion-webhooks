@@ -173,6 +173,20 @@
               converted = obj["response"]["convertedObjects"][0]
               assert converted["spec"]["kafka"]["secretName"] == "supersecret"
               assert "secretName" not in converted["spec"]
+
+              # No common secretName: spec.secretName is absent,
+              # so the converter should not add any nested secretName.
+              machine.succeed("""cat >/tmp/payload-no-common.json <<'EOF'
+              {"apiVersion":"apiextensions.k8s.io/v1","kind":"ConversionReview","request":{"uid":"456","desiredAPIVersion":"aiven.nais.io/v2","objects":[{"apiVersion":"aiven.nais.io/v1","kind":"AivenApp","spec":{"kafka":{}}}]}}
+              EOF
+              """)
+              resp_no_common = machine.succeed("curl -sk https://localhost:3000/convert -H 'content-type: application/json' --data @/tmp/payload-no-common.json")
+              obj_no_common = json.loads(resp_no_common)
+              converted_no_common = obj_no_common["response"]["convertedObjects"][0]
+              assert "secretName" not in converted_no_common["spec"]
+              assert "secretName" not in converted_no_common["spec"]["kafka"]
+
+              machine.shutdown()
             '';
         };
       in
