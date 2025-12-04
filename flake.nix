@@ -135,18 +135,26 @@
                 pkgs.step-cli
                 aacw
               ];
+
+              systemd.services.aacw = {
+                description = "AivenApp conversion webhook test server";
+                wantedBy = [ ];
+                serviceConfig = {
+                  ExecStart = "${serverRunner}";
+                  Restart = "on-failure";
+                };
+              };
             };
           testScript = # python
             ''
               cert_cmd = "${certGenerator}"
-              server_cmd = "${serverRunner}"
 
               machine.start()
               machine.wait_for_unit("multi-user.target")
               machine.succeed("mkdir -p /app")
               machine.succeed(cert_cmd)
 
-              machine.succeed(server_cmd + " & disown")
+              machine.succeed("systemctl start aacw.service")
               machine.wait_for_open_port(3000)
 
               def get(path: str) -> str:
