@@ -170,7 +170,7 @@
       in
       {
         checks = {
-          inherit aacw sbom;
+          inherit aacw sbom nixos-vm-test;
 
           # Run clippy (and deny all warnings) on the crate source,
           # again, reusing the dependency artifacts from above.
