@@ -15,14 +15,9 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
 };
 
-/* Todos
-
-[x] Use tls certs from cert manager
-[x] have a tls cert integration test
-[x] nix docker -> Ci
-[x] fasit feature
+/* todos
 metrics
-traces
+traces (lolno)
 signal handling -> graceful shutudown
 
  */
