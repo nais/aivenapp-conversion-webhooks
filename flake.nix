@@ -160,8 +160,11 @@
               EOF
               """)
               resp = machine.succeed("curl -sk https://localhost:3000/convert -H 'content-type: application/json' --data @/tmp/payload.json")
-              # Basic parse to ensure it's valid JSON
-              machine.succeed(f"printf %s \"{resp}\" | jq . >/dev/null")
+              import json
+              obj = json.loads(resp)
+              converted = obj["response"]["convertedObjects"][0]
+              assert converted["spec"]["kafka"]["secretName"] == "supersecret"
+              assert "secretName" not in converted["spec"]
             '';
         };
       in
