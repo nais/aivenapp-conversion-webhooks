@@ -164,7 +164,7 @@
               assert get("ready").strip() == "ok"
 
               machine.succeed("""cat >/tmp/payload.json <<'EOF'
-              {"apiVersion":"apiextensions.k8s.io/v1","kind":"ConversionReview","request":{"uid":"123","desiredAPIVersion":"v2","objects":[{"apiVersion":"v1","kind":"AivenApp","spec":{"secretName":"supersecret","kafka":{}}}]}}
+              {"apiVersion":"apiextensions.k8s.io/v1","kind":"ConversionReview","request":{"uid":"123","desiredAPIVersion":"aiven.nais.io/v2","objects":[{"apiVersion":"aiven.nais.io/v1","kind":"AivenApp","spec":{"secretName":"supersecret","kafka":{}}}]}}
               EOF
               """)
               resp = machine.succeed("curl -sk https://localhost:3000/convert -H 'content-type: application/json' --data @/tmp/payload.json")
