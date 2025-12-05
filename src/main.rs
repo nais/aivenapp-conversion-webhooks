@@ -1,10 +1,12 @@
 use std::{env, io::IsTerminal, net::SocketAddr, time::Duration};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use axum::{
-    Json, Router,
+    Json,
+    Router,
     routing::{get, post},
 };
+use axum_otel_metrics::HttpMetricsLayerBuilder;
 use axum_server::tls_rustls::RustlsConfig;
 use axum_server::Handle;
 use kube::core::Status as KubeStatus;
@@ -80,10 +82,13 @@ async fn main() -> Result<()> {
         .await
         .context("failed to load TLS certificates")?;
 
+    let metrics_layer = HttpMetricsLayerBuilder::new().build();
+
     let app = Router::new()
         .route("/convert", post(convert))
         .route("/health", get(health))
-        .route("/ready", get(ready));
+        .route("/ready", get(ready))
+        .layer(metrics_layer);
 
     let handle = Handle::new();
 
