@@ -1,14 +1,13 @@
 use std::{env, io::IsTerminal, net::SocketAddr, time::Duration};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use axum::{
-    Json,
-    Router,
+    Json, Router,
     routing::{get, post},
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
-use axum_server::tls_rustls::RustlsConfig;
 use axum_server::Handle;
+use axum_server::tls_rustls::RustlsConfig;
 use kube::core::Status as KubeStatus;
 use kube::core::conversion::{ConversionRequest, ConversionResponse, ConversionReview};
 use serde_json::{Map, Value};
@@ -20,9 +19,8 @@ use tracing_subscriber::{
 };
 
 /* todos
-metrics
+metrics -> also export metrics rather than noop them. fml otel libraries
 traces (lolno)
-signal handling -> graceful shutudown
 
  */
 
@@ -100,15 +98,32 @@ async fn main() -> Result<()> {
 
     let shutdown_handle = handle.clone();
     tokio::spawn(async move {
-        match signal::ctrl_c().await {
-            Ok(()) => {
-                info!("shutdown signal received, starting graceful shutdown");
-                shutdown_handle.graceful_shutdown(Some(Duration::from_secs(30)));
+        let mut sigterm =
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                Ok(sig) => Some(sig),
+                Err(err) => {
+                    error!("failed to listen for SIGTERM: {err}");
+                    None
+                }
+            };
+
+        tokio::select! {
+            res = signal::ctrl_c() => {
+                match res {
+                    Ok(()) => info!("SIGINT"),
+                    Err(err) => error!("failed to listen for shutdown signal: {err}"),
+                }
             }
-            Err(err) => {
-                error!("failed to listen for shutdown signal: {err}");
+            _ = async {
+                if let Some(ref mut sigterm) = sigterm {
+                    sigterm.recv().await;
+                }
+            }, if sigterm.is_some() => {
+                info!("SIGTERM");
             }
         }
+
+        shutdown_handle.graceful_shutdown(Some(Duration::from_secs(30)));
     });
 
     server.await?;
