@@ -206,8 +206,14 @@
         };
       in
       {
-        checks = {
-          inherit aacw sbom nixos-vm-test;
+        checks =
+          {
+            inherit aacw sbom;
+          }
+          // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+            inherit nixos-vm-test;
+          }
+          // {
 
           # Run clippy (and deny all warnings) on the crate source,
           # again, reusing the dependency artifacts from above.
@@ -215,13 +221,13 @@
           # Note that this is done as a separate derivation so that
           # we can block the CI if there are issues here, but not
           # prevent downstream consumers from building our crate by itself.
-          # my-crate-clippy = craneLib.cargoClippy (
-          #   commonArgs
-          #   // {
-          #     inherit cargoArtifacts;
-          #     cargoClippyExtraArgs = "--all-targets -- --deny warnings";
-          #   }
-          # );
+          my-crate-clippy = craneLib.cargoClippy (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoClippyExtraArgs = "--all-targets -- --deny warnings";
+            }
+          );
 
           my-crate-doc = craneLib.cargoDoc (
             commonArgs
@@ -268,13 +274,13 @@
           programs.rustfmt.enable = true;
         };
 
-        packages = {
-          inherit aacw sbom;
-          default = aacw;
-          vm-test = nixos-vm-test;
+        packages =
+          {
+            inherit aacw sbom;
+            default = aacw;
 
-          version = pkgs.writeText "version" releaseTag;
-          fasit-feature =
+            version = pkgs.writeText "version" releaseTag;
+            fasit-feature =
             let
               release = {
                 inherit (crateData.package) name;
@@ -329,53 +335,65 @@
                   }
                 )
               ];
-        }
-
-        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-          image =
-            (pkgs.dockerTools.buildImage {
-              name = "aacw";
-              tag = releaseTag;
-              copyToRoot = pkgs.buildEnv {
-                name = "aacw-image";
-                pathsToLink = [ "/bin" ];
-                paths = [ aacw ];
-              };
-              config = {
-                User = "1069:1069";
-                ExposedPorts = {
-                  "3000/tcp" = { };
+          }
+          // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+            vm-test = nixos-vm-test;
+            image =
+              (pkgs.dockerTools.buildImage {
+                name = "aacw";
+                tag = releaseTag;
+                copyToRoot = pkgs.buildEnv {
+                  name = "aacw-image";
+                  pathsToLink = [ "/bin" ];
+                  paths = [ aacw ];
                 };
-                Entrypoint = [ (lib.getExe aacw) ];
-                Env = [ "RUST_LOG=info" ];
-              };
-            }).overrideAttrs
-              (old: {
-                imageName = "aacw";
-                imageTag = releaseTag;
-              });
-        };
-
-        apps.default = inputs.flake-utils.lib.mkApp {
-          drv = aacw;
-        };
-
-        apps.version = inputs.flake-utils.lib.mkApp {
-          drv = pkgs.writeShellApplication {
-            name = "print-version";
-            text = ''
-              printf %s "${releaseTag}"
-            '';
+                config = {
+                  User = "1069:1069";
+                  ExposedPorts = {
+                    "3000/tcp" = { };
+                  };
+                  Entrypoint = [ (lib.getExe aacw) ];
+                  Env = [ "RUST_LOG=info" ];
+                };
+              }).overrideAttrs
+                (old: {
+                  imageName = "aacw";
+                  imageTag = releaseTag;
+                });
           };
-        };
 
-        apps.mk-cert = inputs.flake-utils.lib.mkApp {
-          drv = pkgs.writeShellApplication {
-            name = "mk-cert";
-            text = "step certificate create localhost cert.pem key.pem --profile self-signed --subtle --no-password --insecure";
-            runtimeInputs = [ pkgs.step-cli ];
+        apps.default =
+          inputs.flake-utils.lib.mkApp {
+            drv = aacw;
+          }
+          // {
+            meta.description = "Run aivenapp-conversion-webhooks binary";
           };
-        };
+
+        apps.version =
+          inputs.flake-utils.lib.mkApp {
+            drv = pkgs.writeShellApplication {
+              name = "print-version";
+              text = ''
+                printf %s "${releaseTag}"
+              '';
+            };
+          }
+          // {
+            meta.description = "Print release tag for aivenapp-conversion-webhooks";
+          };
+
+        apps.mk-cert =
+          inputs.flake-utils.lib.mkApp {
+            drv = pkgs.writeShellApplication {
+              name = "mk-cert";
+              text = "step certificate create localhost cert.pem key.pem --profile self-signed --subtle --no-password --insecure";
+              runtimeInputs = [ pkgs.step-cli ];
+            };
+          }
+          // {
+            meta.description = "Generate self-signed localhost TLS certificate";
+          };
 
         devShells.default = craneLib.devShell {
           # Inherit inputs from checks.
