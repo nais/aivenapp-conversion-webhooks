@@ -1,4 +1,4 @@
-use std::{env, io::IsTerminal, net::SocketAddr};
+use std::{env, io::IsTerminal, net::SocketAddr, time::Duration};
 
 use anyhow::{Context, Result, bail};
 use axum::{
@@ -6,9 +6,11 @@ use axum::{
     routing::{get, post},
 };
 use axum_server::tls_rustls::RustlsConfig;
+use axum_server::Handle;
 use kube::core::Status as KubeStatus;
 use kube::core::conversion::{ConversionRequest, ConversionResponse, ConversionReview};
 use serde_json::{Map, Value};
+use tokio::signal;
 use tracing::{debug, error, info, metadata::LevelFilter, warn};
 use tracing_subscriber::{
     EnvFilter, Registry, filter, prelude::__tracing_subscriber_SubscriberExt,
@@ -83,11 +85,28 @@ async fn main() -> Result<()> {
         .route("/health", get(health))
         .route("/ready", get(ready));
 
+    let handle = Handle::new();
+
     info!("starting webserver");
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
-    axum_server::bind_rustls(addr, config)
-        .serve(app.into_make_service())
-        .await?;
+    let server = axum_server::bind_rustls(addr, config)
+        .handle(handle.clone())
+        .serve(app.into_make_service());
+
+    let shutdown_handle = handle.clone();
+    tokio::spawn(async move {
+        match signal::ctrl_c().await {
+            Ok(()) => {
+                info!("shutdown signal received, starting graceful shutdown");
+                shutdown_handle.graceful_shutdown(Some(Duration::from_secs(30)));
+            }
+            Err(err) => {
+                error!("failed to listen for shutdown signal: {err}");
+            }
+        }
+    });
+
+    server.await?;
 
     Ok(())
 }
