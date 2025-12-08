@@ -6,13 +6,13 @@ use axum::{
     routing::{get, post},
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
-use opentelemetry::global;
-use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider, Temporality};
-use opentelemetry_otlp::WithExportConfig;
 use axum_server::Handle;
 use axum_server::tls_rustls::RustlsConfig;
 use kube::core::Status as KubeStatus;
 use kube::core::conversion::{ConversionRequest, ConversionResponse, ConversionReview};
+use opentelemetry::global;
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider, Temporality};
 use serde_json::{Map, Value};
 use tokio::signal;
 use tracing::{debug, error, info, metadata::LevelFilter, warn};
@@ -70,7 +70,9 @@ fn init_metrics() {
     let endpoint = match env::var("OTEL_EXPORTER_OTLP_ENDPOINT") {
         Ok(v) if !v.is_empty() => v,
         _ => {
-            info!("OTEL_EXPORTER_OTLP_ENDPOINT not set; HTTP metrics will be recorded but not exported");
+            info!(
+                "OTEL_EXPORTER_OTLP_ENDPOINT not set; HTTP metrics will be recorded but not exported"
+            );
             return;
         }
     };
@@ -170,7 +172,8 @@ async fn main() -> Result<()> {
 async fn health() -> &'static str {
     "ok"
 }
-
+/// These is not real, it should really be unhealthy if the certs are expired
+/// However stakater reloads the app and that's what we grind here rather than health/ready
 async fn ready() -> &'static str {
     "ok"
 }
