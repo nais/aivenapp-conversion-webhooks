@@ -15,7 +15,10 @@ lib.recursiveUpdate {
     replicas = 2;
     selector.matchLabels.app = "${release.name}-webhook";
     template = {
-      metadata.labels.app = "${release.name}-webhook";
+      metadata = {
+        labels.app = "${release.name}-webhook";
+        annotations."secret.reloader.stakater.com/reload" = "${release.name}-webhook";
+      };
       spec = {
         containers = [
           {
