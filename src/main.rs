@@ -6,6 +6,9 @@ use axum::{
     routing::{get, post},
 };
 use axum_otel_metrics::HttpMetricsLayerBuilder;
+use opentelemetry::global;
+use opentelemetry_sdk::metrics::{PeriodicReader, SdkMeterProvider, Temporality};
+use opentelemetry_otlp::WithExportConfig;
 use axum_server::Handle;
 use axum_server::tls_rustls::RustlsConfig;
 use kube::core::Status as KubeStatus;
@@ -18,12 +21,11 @@ use tracing_subscriber::{
     util::SubscriberInitExt,
 };
 
-/* todos
-metrics -> also export metrics rather than noop them. fml otel libraries
-traces (lolno)
-
- */
-
+/// Initialize the tracing subscriber used by this binary.
+///
+/// # Errors
+///
+/// Returns an error if installing the tracing subscriber fails.
 pub fn init_tracing_subscriber() -> Result<()> {
     use tracing_subscriber::fmt as layer_fmt;
 
@@ -63,9 +65,43 @@ pub fn init_tracing_subscriber() -> Result<()> {
     Ok(())
 }
 
+fn init_metrics() {
+    // Only configure OTLP metrics if an endpoint is provided.
+    let endpoint = match env::var("OTEL_EXPORTER_OTLP_ENDPOINT") {
+        Ok(v) if !v.is_empty() => v,
+        _ => {
+            info!("OTEL_EXPORTER_OTLP_ENDPOINT not set; HTTP metrics will be recorded but not exported");
+            return;
+        }
+    };
+
+    info!(%endpoint, "initializing OTLP metrics exporter");
+
+    let exporter = match opentelemetry_otlp::MetricExporter::builder()
+        .with_http()
+        .with_endpoint(endpoint)
+        .with_temporality(Temporality::default())
+        .build()
+    {
+        Ok(exp) => exp,
+        Err(err) => {
+            warn!(%err, "failed to build OTLP metrics exporter; metrics will not be exported");
+            return;
+        }
+    };
+
+    let reader = PeriodicReader::builder(exporter)
+        .with_interval(Duration::from_secs(30))
+        .build();
+
+    let provider = SdkMeterProvider::builder().with_reader(reader).build();
+    global::set_meter_provider(provider);
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     init_tracing_subscriber()?;
+    init_metrics();
     info!("starting app");
     rustls::crypto::ring::default_provider()
         .install_default()
@@ -114,7 +150,7 @@ async fn main() -> Result<()> {
                     Err(err) => error!("failed to listen for shutdown signal: {err}"),
                 }
             }
-            _ = async {
+            () = async {
                 if let Some(ref mut sigterm) = sigterm {
                     sigterm.recv().await;
                 }
