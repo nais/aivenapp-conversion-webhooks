@@ -29,6 +29,10 @@ lib.recursiveUpdate {
                 name = "RUST_LOG";
                 value = "info";
               }
+              {
+                name = "OTEL_EXPORTER_OTLP_ENDPOINT";
+                value = "http://opentelemetry-collector.nais-system:4318";
+              }
             ];
             name = "aacw";
             ports = [
