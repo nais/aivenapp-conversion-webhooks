@@ -53,10 +53,9 @@ pub async fn convert(Json(review): Json<ConversionReview>) -> Json<ConversionRev
 fn to_v1(req: ConversionRequest) -> Result<ConversionReview> {
     let converted_objects = req
         .objects
-        .clone()
-        .into_iter()
-        .map(|mut object| {
-            let Some(obj) = object.as_object_mut() else {
+        .iter()
+        .map(|object| {
+            let Some(obj) = object.as_object() else {
                 bail!("Object is not a JSON object");
             };
 
@@ -67,12 +66,11 @@ fn to_v1(req: ConversionRequest) -> Result<ConversionReview> {
                 bail!("apiVersion string not json parsable");
             };
 
-            let converted_obj = match old_api_version {
-                "aiven.nais.io/v1" | "aiven.nais.io/v2" => obj, // v2->v1 is backwards compatible
+            let mut converted_obj = match old_api_version {
+                "aiven.nais.io/v1" | "aiven.nais.io/v2" => obj.clone(), // v2->v1 is backwards compatible
                 _ => bail!("Unhandled `apiVersion`: {old_api_version}"),
             };
 
-            let mut converted_obj = converted_obj.clone();
             converted_obj.insert(
                 "apiVersion".to_string(),
                 Value::String(req.desired_api_version.clone()),
@@ -89,10 +87,9 @@ fn to_v1(req: ConversionRequest) -> Result<ConversionReview> {
 fn to_v2(req: ConversionRequest) -> Result<ConversionReview> {
     let converted_objects = req
         .objects
-        .clone()
-        .into_iter()
-        .map(|mut object| {
-            let Some(obj) = object.as_object_mut() else {
+        .iter()
+        .map(|object| {
+            let Some(obj) = object.as_object() else {
                 bail!("Object is not a JSON object");
             };
 
@@ -103,13 +100,12 @@ fn to_v2(req: ConversionRequest) -> Result<ConversionReview> {
                 bail!("apiVersion string not json parsable");
             };
 
-            let converted_obj = match old_api_version {
-                "aiven.nais.io/v1" => drop_spec_secret(obj)?,
+            let mut converted_obj = match old_api_version {
+                "aiven.nais.io/v1" => drop_spec_secret(obj.clone())?,
                 "aiven.nais.io/v2" => obj.clone(),
                 _ => bail!("Unhandled `apiVersion`: {old_api_version}"),
             };
 
-            let mut converted_obj = converted_obj;
             converted_obj.insert(
                 "apiVersion".to_string(),
                 Value::String(req.desired_api_version.clone()),
@@ -123,7 +119,7 @@ fn to_v2(req: ConversionRequest) -> Result<ConversionReview> {
         .into_review())
 }
 
-fn drop_spec_secret(object: &mut Map<String, Value>) -> Result<Map<String, Value>> {
+fn drop_spec_secret(mut object: Map<String, Value>) -> Result<Map<String, Value>> {
     let Some(spec) = object
         .get_mut("spec")
         .and_then(|spec_obj| spec_obj.as_object_mut())
@@ -133,7 +129,7 @@ fn drop_spec_secret(object: &mut Map<String, Value>) -> Result<Map<String, Value
 
     let Some(secret_name) = spec.remove("secretName") else {
         // No common secret name to care about
-        return Ok(object.clone());
+        return Ok(object);
     };
 
     for sub_struct_name in ["openSearch", "kafka"] {
@@ -150,7 +146,7 @@ fn drop_spec_secret(object: &mut Map<String, Value>) -> Result<Map<String, Value
             .entry("secretName".to_owned())
             .or_insert(secret_name.clone());
     }
-    Ok(object.clone())
+    Ok(object)
 }
 
 #[cfg(test)]
@@ -168,7 +164,10 @@ mod tests {
                 "kafka": {}
             }
         });
-        let value = json_value.as_object_mut().unwrap();
+        let value = json_value
+            .as_object_mut()
+            .expect("json_value must be a JSON object")
+            .clone();
 
         let result = drop_spec_secret(value)?;
         assert!(result["spec"].get("secretName").is_none());
@@ -184,7 +183,10 @@ mod tests {
                 "secretName": "supersecret",
             }
         });
-        let value = json_value.as_object_mut().unwrap();
+        let value = json_value
+            .as_object_mut()
+            .expect("json_value must be a JSON object")
+            .clone();
 
         let result = drop_spec_secret(value)?;
         assert!(result["spec"].get("secretName").is_none());
@@ -204,7 +206,10 @@ mod tests {
                 }
             }
         });
-        let value = json_value.as_object_mut().unwrap();
+        let value = json_value
+            .as_object_mut()
+            .expect("json_value must be a JSON object")
+            .clone();
 
         let result = drop_spec_secret(value)?;
         assert!(result["spec"].get("secretName").is_none());
@@ -229,4 +234,3 @@ mod tests {
         Ok(())
     }
 }
-
