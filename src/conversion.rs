@@ -8,7 +8,6 @@ use tracing::{debug, error, info};
 /// this is only for v1-v2 for aivenapps
 pub async fn convert(Json(review): Json<ConversionReview>) -> Json<ConversionReview> {
     info!("received ConversionReview");
-    debug!("{review:?}");
     let request = match ConversionRequest::from_review(review) {
         Ok(r) => r,
         Err(e) => {
