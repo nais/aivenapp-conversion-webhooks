@@ -57,8 +57,8 @@ jobs:
       image: ${{ steps.nix-build.outputs.image }}
       version: ${{ steps.nix-build.outputs.version }}
 
-  rollout:
-    name: Rollout
+  deploy:
+    name: Deploy
     needs:
       - build
     runs-on: fasit-deploy
@@ -68,7 +68,14 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # ratchet:actions/checkout@v4
-      - uses: nais/fasit-deploy@v2 # ratchet:exclude
+      - uses: nais/fasit-deploy@v4 # ratchet:exclude
         with:
           chart: oci://europe-north1-docker.pkg.dev/nais-io/nais/feature/aivenapp-conversion-webhooks
           version: ${{ needs.build.outputs.version }}
+          targets: |
+            [
+              { "target": { "kind": "tenant", "tenant": "ci-nais" }, "wait": true },
+              { "target": { "kind": "onprem", "tenant": "ci-nais" }, "wait": true },
+              { "target": { "kind": "tenant" } },
+              { "target": { "kind": "onprem" } }
+            ]
