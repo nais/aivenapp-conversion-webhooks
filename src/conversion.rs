@@ -3,7 +3,7 @@ use axum::Json;
 use kube::core::conversion::{ConversionRequest, ConversionResponse, ConversionReview};
 use kube::core::Status as KubeStatus;
 use serde_json::{Map, Value};
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 /// this is only for v1-v2 for aivenapps
 pub async fn convert(Json(review): Json<ConversionReview>) -> Json<ConversionReview> {
