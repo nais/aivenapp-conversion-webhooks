@@ -11,7 +11,6 @@ _: {
   environmentKinds = [
     "tenant"
     "onprem"
-    "legacy"
   ];
 
   values = { };
