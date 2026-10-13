@@ -30,10 +30,8 @@
         src = lib.fileset.toSource rec {
           root = ./.;
           fileset = lib.fileset.unions [
-            # Default files from crane (Rust and cargo files)
-            (craneLib.fileset.commonCargoSources root)
-            # Include all the goldenfile test jsons as well
-            ./golden
+            (craneLib.fileset.commonCargoSources root) # Default files from crane (Rust and cargo files)
+            ./golden # Include all the goldenfile test jsons as well
           ];
         };
         githubSha = builtins.getEnv "GITHUB_SHA";
@@ -54,10 +52,8 @@
           strictDeps = true;
 
           nativeBuildInputs =
-            [
-              # Add additional build inputs here
-            ]
-            ++ lib.optionals pkgs.stdenv.isDarwin [
+            [ ] # Add additional build inputs here
+            ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
               # Additional darwin specific inputs can be set here
               pkgs.libiconv
             ];
@@ -68,12 +64,8 @@
 
         crateData = lib.importTOML ./Cargo.toml;
 
-        # Build *just* the cargo dependencies, so we can reuse
-        # all of that work (e.g. via cachix) when running in CI
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
-        # Build the actual crate itself, reusing the dependency
-        # artifacts from above.
         aacw = craneLib.buildPackage (
           commonArgs
           // {
@@ -85,17 +77,14 @@
         sbom = craneLib.mkCargoDerivation (
           commonArgs
           // {
-            # Require the caller to specify cargoArtifacts we can use
-            inherit cargoArtifacts;
+            inherit cargoArtifacts; # Require the caller to specify cargoArtifacts we can use
 
-            # A suffix name used by the derivation, useful for logging
-            pnameSuffix = "-sbom";
+            pnameSuffix = "-sbom"; # A suffix name used by the derivation, useful for logging
 
-            # Set the cargo command we will use and pass through the flags
             installPhase = # bash
-              ''mv bom.json $out'';
+              "mv bom.json $out"; # Set the cargo command we will use and pass through the flags
             buildPhaseCargoCommand = # bash
-              ''cargo cyclonedx -f json --all --override-filename bom'';
+              "cargo cyclonedx -f json --all --override-filename bom";
             nativeBuildInputs = (commonArgs.nativeBuildInputs or [ ]) ++ [ pkgs.cargo-cyclonedx ];
           }
         );
@@ -206,15 +195,13 @@
         };
       in
       {
-        checks =
-          {
-            inherit aacw sbom;
-          }
-          // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-            inherit nixos-vm-test;
-          }
-          // {
-
+        checks = {
+          inherit aacw sbom;
+        }
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          inherit nixos-vm-test;
+        }
+        // {
           # Run clippy (and deny all warnings) on the crate source,
           # again, reusing the dependency artifacts from above.
           #
@@ -274,13 +261,12 @@
           programs.rustfmt.enable = true;
         };
 
-        packages =
-          {
-            inherit aacw sbom;
-            default = aacw;
+        packages = {
+          inherit aacw sbom;
+          default = aacw;
 
-            version = pkgs.writeText "version" releaseTag;
-            fasit-feature =
+          version = pkgs.writeText "version" releaseTag;
+          fasit-feature =
             let
               release = {
                 inherit (crateData.package) name;
@@ -335,32 +321,32 @@
                   }
                 )
               ];
-          }
-          // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
-            vm-test = nixos-vm-test;
-            image =
-              (pkgs.dockerTools.buildImage {
-                name = "aacw";
-                tag = releaseTag;
-                copyToRoot = pkgs.buildEnv {
-                  name = "aacw-image";
-                  pathsToLink = [ "/bin" ];
-                  paths = [ aacw ];
+        }
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          vm-test = nixos-vm-test;
+          image =
+            (pkgs.dockerTools.buildImage {
+              name = "aacw";
+              tag = releaseTag;
+              copyToRoot = pkgs.buildEnv {
+                name = "aacw-image";
+                pathsToLink = [ "/bin" ];
+                paths = [ aacw ];
+              };
+              config = {
+                User = "1069:1069";
+                ExposedPorts = {
+                  "3000/tcp" = { };
                 };
-                config = {
-                  User = "1069:1069";
-                  ExposedPorts = {
-                    "3000/tcp" = { };
-                  };
-                  Entrypoint = [ (lib.getExe aacw) ];
-                  Env = [ "RUST_LOG=info" ];
-                };
-              }).overrideAttrs
-                (old: {
-                  imageName = "aacw";
-                  imageTag = releaseTag;
-                });
-          };
+                Entrypoint = [ (lib.getExe aacw) ];
+                Env = [ "RUST_LOG=info" ];
+              };
+            }).overrideAttrs
+              (old: {
+                imageName = "aacw";
+                imageTag = releaseTag;
+              });
+        };
 
         apps.default =
           inputs.flake-utils.lib.mkApp {
